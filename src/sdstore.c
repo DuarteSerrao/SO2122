@@ -4,8 +4,8 @@
 * PURPOSE:	
 * GROUP:	xx
 * STUDENTS:	- Duarte Serrão, a83630
-*			- Renato
-*			- Sebastião
+*           - Renato
+*           - Sebastião
 *******************************************************************/
 #include <fcntl.h>
 #include <stdio.h>
@@ -35,14 +35,6 @@ int main(int argc, char** argv)
         printf("Server offline\n");
         close(server);
         return 2;
-    }
-
-    // wot?
-    if (argv[1] == NULL){
-        char* tutorial = "Mensagem de tutorial\n";
-        write(1,tutorial, strlen(tutorial));
-        close(server);
-        return 1;
     }
 
     //For each new argument, we need to send it through the pipeline
