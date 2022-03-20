@@ -1,3 +1,12 @@
+/******************************************************************
+* PROJECT:	SDStore
+* MODULE:	SERVER
+* PURPOSE:	
+* GROUP:	xx
+* STUDENTS:	- Duarte Serrão, a83630
+*			- Renato
+*           - Sebastião
+*******************************************************************/
 #include <fcntl.h>
 #include <stdio.h>
 #include <sys/stat.h>
@@ -6,28 +15,21 @@
 #include <string.h>
 #include <stdlib.h>
 
- // server
-
-void terminate(int signum){
-    unlink("tmp/pipCli");
-    unlink("tmp/pip");
-    pid_t p = getpid();
-    kill(p, SIGQUIT);
-}
-
-
-
+void terminate(int signum);
 
 int main(int argc, char** argv)
 {
+    // Lidar com sinais
     signal(SIGINT, terminate);
     signal(SIGTERM, terminate);
 
+    //wot ._.
     if (argv[1] == NULL){
       char* tutorial = "tutorial \n";
       write(1,tutorial, strlen(tutorial));
       return 1;
     }
+
 
     printf("Starting server...\n");
     mkfifo("tmp/pipCli", 0644);
@@ -35,6 +37,8 @@ int main(int argc, char** argv)
 
     printf("Loading config..\n");
     loadConfig(argv[1]);
+
+
     while(1){
 
         printf("Forking..\n");
@@ -105,4 +109,11 @@ int main(int argc, char** argv)
       }
   }
   return 0;
+}
+
+void terminate(int signum){
+    unlink("tmp/pipCli");
+    unlink("tmp/pip");
+    pid_t p = getpid();
+    kill(p, SIGQUIT);
 }
