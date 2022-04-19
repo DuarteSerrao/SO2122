@@ -20,5 +20,5 @@ clean:
 	rm obj/* tmp/* bin/{sdstore,sdstored}
 
 test:
-	xfce4-terminal -e bin/sdstore
 	xfce4-terminal -e bin/sdstored
+	xfce4-terminal -e bin/sdstore
