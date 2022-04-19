@@ -29,7 +29,7 @@ int main(int argc, char** argv)
       return 1;
     }*/
 
-
+    char* sdstore = "./SDStore-transf/";
 
     printf("Starting server...\n");
     mkfifo("tmp/pipCli", 0644);
@@ -39,6 +39,24 @@ int main(int argc, char** argv)
       int input = open("tmp/pip", O_RDONLY);
       char buf[1024];
       int n = read(input, buf, 1024);
+      char* tokeninutil;
+      strncpy(tokeninutil, buf, n-1);
+      int i = 0;
+      char* args[20];
+      printf("%d\n",n );
+      
+      char* token = strtok(tokeninutil," ");
+      strcat(token,"\0");
+      printf("%s\n",token );
+      while(token != NULL){
+        strcpy(args[i],token);
+        token = strtok(NULL," ");
+        strcat(args[i],"\0");
+        i++;
+      }
+      strcat(sdstore,args[0]);
+      //execv(sdstore,args);
+      //execvp("ls",args);
 
       int cliente = open("tmp/pipCli", O_WRONLY);
       char* resposta = "O seu pedido esta a ser processado\n";
