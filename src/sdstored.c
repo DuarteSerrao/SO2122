@@ -76,12 +76,13 @@ bool parseConfig(char* buffer, operations operations)
     return true;
 }
 
-bool startUp(char* config, char* execPath, operations operations)
+bool startUp(char* configFile, char* execPath, operations operations)
 {
     bool ret = false;
     char buffer[128];
     int fd;
-    if((fd = open(config, O_RDONLY)) >= 0)
+
+    if((fd = open(configFile, O_RDONLY)) >= 0)
     {
         ssize_t n = read(fd,buffer,sizeof(buffer));
 
@@ -92,7 +93,7 @@ bool startUp(char* config, char* execPath, operations operations)
 
         free(aux_buff);
     }
-    else ret = false;
+    else return false;
 
     ret = ((fd = open(execPath,O_RDONLY)) >= 0);
     close(fd);
@@ -108,11 +109,13 @@ int main(int argc, char** argv)
     char *aux_message = "";
     operations operations;
     //validates input before starting server
-    if(!startUp(argv[1],argv[2], operations)) {
+    if((argc != 2) || (!startUp(argv[1], argv[2], operations))) {
       aux_message = "Input not valid.\n";
       write(STDERR_FILENO, aux_message, strlen(aux_message));
       return 1;
     }
+
+     char* execs_path = argv[2];
 
     aux_message = "Server starting...\n";
     write(STDOUT_FILENO, aux_message, strlen(aux_message));
@@ -145,7 +148,7 @@ int main(int argc, char** argv)
 
         token = strtok(aux_buff," ");
 
-        while (token != NULL) 
+        while (token != NULL)
         {
             num_args++;
 
@@ -164,7 +167,7 @@ int main(int argc, char** argv)
         num_args++;
         args = realloc(args, num_args * sizeof(*args));
         args[num_args - 1] = NULL;
-        //strcat(execs_path,args[0]);
+        strcat(execs_path,args[0]);
 
         //execv(sdstore,args);
         execvp(args[0], args);
@@ -172,6 +175,12 @@ int main(int argc, char** argv)
         free(aux_buff);
         close(input);
 
+        /*char *srcFile = args[0];
+        char *destFile = args[1];
+        testPath(char *path);
+        for(i){
+        path = concat
+        exec(path, {arg[i], scr, dest})}*/
 
         //Opening pipe [Server -> Client]
         int cliente = open("tmp/pipCli", O_WRONLY);
