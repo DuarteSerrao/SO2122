@@ -1,3 +1,12 @@
+/*******************************************************************************
+SISTEMAS OPERATIVOS
+PROJECT:    SDSTORE-TRANSF
+MODULE:     SERVER
+PURPOSE:    Get request(s) from client(s) and process them
+DEVELOPERS: a83630, Duarte Serrão
+            axxxxx, Renato
+            axxxxx, Sebastião
+*******************************************************************************/
 #include <fcntl.h>
 #include <stdio.h>
 #include <sys/stat.h>
@@ -59,10 +68,7 @@ int main(int argc, char** argv)
         char *aux_buff = malloc(n*sizeof(char));
         strncpy(aux_buff, buff, n);
 
-        //Getting the first token and freeing aux        
-        token = strtok(aux_buff," ");
-        
-
+        token = strtok(aux_buff," ");        
         for(int i=0; token != NULL; i++)
         {
             strcpy(args[i],token);

@@ -1,3 +1,12 @@
+/*******************************************************************************
+SISTEMAS OPERATIVOS
+PROJECT:    SDSTORE-TRANSF
+MODULE:     CLIENT
+PURPOSE:    Send requests to server and wait for response
+DEVELOPERS: a83630, Duarte Serrão
+            axxxxx, Renato
+            axxxxx, Sebastião
+*******************************************************************************/
 #include <fcntl.h>
 #include <stdio.h>
 #include <string.h>
