@@ -6,6 +6,9 @@
 #include <string.h>
 #include <stdlib.h>
 
+#define BUFF_SIZE 1024
+#define MAX_ARGS  20
+#define ARG_SIZE  20
  // server
 
 void terminate(int signum){
@@ -16,52 +19,69 @@ void terminate(int signum){
 }
 
 
-
-
 int main(int argc, char** argv)
 {
-    signal(SIGINT, terminate);
-    signal(SIGTERM, terminate);
+    //signal(SIGINT, terminate);
+    //signal(SIGTERM, terminate);
 
-    /*if (argv[1] == NULL){
-      char* tutorial = "tutorial \n";
-      write(1,tutorial, strlen(tutorial));
-      return 1;
-    }*/
 
-    char* sdstore = "./SDStore-transf/";
+    const char *execs_path = "./SDStore-transf/";
+    char *aux_message = "";
 
-    printf("Starting server...\n");
+    
+    aux_message = "Server starting...\n";
+    write(STDOUT_FILENO, aux_message, strlen(aux_message));
+
+
+    //Making pipes
     mkfifo("tmp/pipCli", 0644);
     mkfifo("tmp/pip", 0644);
 
-    while(1){
-      int input = open("tmp/pip", O_RDONLY);
-      char buf[1024];
-      int n = read(input, buf, 1024);
-      char* tokeninutil;
-      strncpy(tokeninutil, buf, n-1);
-      int i = 0;
-      char* args[20];
-      printf("%d\n",n );
-      
-      char* token = strtok(tokeninutil," ");
-      strcat(token,"\0");
-      printf("%s\n",token );
-      while(token != NULL){
-        strcpy(args[i],token);
-        token = strtok(NULL," ");
-        strcat(args[i],"\0");
-        i++;
-      }
-      strcat(sdstore,args[0]);
-      //execv(sdstore,args);
-      //execvp("ls",args);
+    aux_message = "Pipes created...\n";
+    write(STDOUT_FILENO, aux_message, strlen(aux_message));
 
-      int cliente = open("tmp/pipCli", O_WRONLY);
-      char* resposta = "O seu pedido esta a ser processado\n";
-      write(cliente, resposta, strlen(resposta));
-      close(cliente);
+
+    aux_message = "Listening...\n";
+    write(STDOUT_FILENO, aux_message, strlen(aux_message));
+
+    //Loop that will constantly listen for new requests
+    while(1)
+    {
+        //Opening pipe [Client -> Server]
+        int input = open("tmp/pip", O_RDONLY);
+
+        char buff[BUFF_SIZE];
+        char args[MAX_ARGS][ARG_SIZE];
+        char* token = "";
+
+        //Getting the size of what was actually read and copying it to an aux
+        ssize_t n = read(input, buff, BUFF_SIZE);
+        char *aux_buff = malloc(n*sizeof(char));
+        strncpy(aux_buff, buff, n);
+
+        //Getting the first token and freeing aux        
+        token = strtok(aux_buff," ");
+        
+
+        for(int i=0; token != NULL; i++)
+        {
+            strcpy(args[i],token);
+            printf("%s\n",token );
+            token = strtok(NULL," ");
+
+        }
+
+        //strcat(execs_path,args[0]);
+
+        //execv(sdstore,args);
+        //execvp("ls",args);
+        free(aux_buff);
+        close(input);
+        //Opening pipe [Server -> Client]
+        //int cliente = open("tmp/pipCli", O_WRONLY);
+        //char* resposta = "O seu pedido esta a ser processado\n";
+        //write(cliente, resposta, strlen(resposta));
+        //close(cliente);
     }
   return 0;
 }
