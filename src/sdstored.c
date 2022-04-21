@@ -14,30 +14,106 @@ DEVELOPERS: a83630, Duarte Serrão
 #include <unistd.h>
 #include <string.h>
 #include <stdlib.h>
+#include <stdbool.h>
 
 #define BUFF_SIZE 1024
 #define MAX_ARGS  20
 #define ARG_SIZE  20
 
-void terminate(int signum)
+void terminate(int signum);
+
+typedef int operations[7];
+
+typedef enum{
+  NOP,
+  BCOMPRESS,
+  BDECOMPRESS,
+  GCOMPRESS,
+  GDECOMPRESS,
+  ENCRYPT,
+  DECRYPT
+} operationType;
+
+bool parseConfig(char* buffer, operations operations)
 {
-    unlink("tmp/pipCli");
-    unlink("tmp/pip");
-    pid_t p = getpid();
-    kill(p, SIGQUIT);
+    char* token =  strtok(buffer," ");
+
+    while (token != NULL)
+    {
+      int tokenNumber = atoi(strtok(NULL,"\n"));
+      if(!strcmp(token,"nop"))
+      {
+          operations[NOP] = tokenNumber;
+      }
+      else if(!strcmp(token,"bcompress"))
+      {
+          operations[BCOMPRESS] = tokenNumber;
+      }
+      else if(!strcmp(token,"bdecompress"))
+      {
+        operations[BDECOMPRESS] = tokenNumber;
+      }
+      else if(!strcmp(token,"gcompress"))
+      {
+          operations[GCOMPRESS] = tokenNumber;
+      }
+      else if(!strcmp(token,"gdecompress"))
+      {
+          operations[GDECOMPRESS] = tokenNumber;
+      }
+      else if(!strcmp(token,"encrypt"))
+      {
+          operations[ENCRYPT] = tokenNumber;
+      }
+      else if(!strcmp(token,"decrypt"))
+      {
+          operations[DECRYPT] = tokenNumber;
+      } else return false;
+
+      token = strtok(NULL," ");
+    }
+
+    return true;
 }
 
+bool startUp(char* config, char* execPath, operations operations)
+{
+    bool ret = false;
+    char buffer[128];
+    int fd;
+    if((fd = open(config, O_RDONLY)) >= 0)
+    {
+        ssize_t n = read(fd,buffer,sizeof(buffer));
+
+        char *aux_buff = malloc(n*sizeof(char));
+        strncpy(aux_buff, buffer, n);
+
+        ret = parseConfig(aux_buff, operations);
+
+        free(aux_buff);
+    }
+    else ret = false;
+
+    ret = ((fd = open(execPath,O_RDONLY)) >= 0);
+    close(fd);
+
+    return ret;
+}
 
 int main(int argc, char** argv)
 {
-    //signal(SIGINT, terminate);
-    //signal(SIGTERM, terminate);
+    signal(SIGINT, terminate);
+    signal(SIGTERM, terminate);
 
-
-    const char *execs_path = "./SDStore-transf/";
     char *aux_message = "";
+    operations operations;
+    //validates input before starting server
+    if(!startUp(argv[1],argv[2], operations)) {
+      aux_message = "Input not valid.\n";
+      write(STDERR_FILENO, aux_message, strlen(aux_message));
+      return 1;
+    }
 
-    
     aux_message = "Server starting...\n";
     write(STDOUT_FILENO, aux_message, strlen(aux_message));
 
@@ -48,7 +124,6 @@ int main(int argc, char** argv)
 
     aux_message = "Pipes created...\n";
     write(STDOUT_FILENO, aux_message, strlen(aux_message));
-
 
     aux_message = "Listening...\n";
     write(STDOUT_FILENO, aux_message, strlen(aux_message));
@@ -68,22 +143,23 @@ int main(int argc, char** argv)
         char *aux_buff = malloc(n*sizeof(char));
         strncpy(aux_buff, buff, n);
 
-        token = strtok(aux_buff," ");  
+        token = strtok(aux_buff," ");
 
-        while (token != NULL) {
+        while (token != NULL) 
+        {
             num_args++;
-        
+
             //Reallocate space for your argument list
             args = realloc(args, num_args * sizeof(*args));
-        
+
             //Copy the current argument
             args[num_args - 1] = malloc(strlen(token) + 1); /* The +1 for length is for the terminating '\0' character */
-            snprintf(args[num_args - 1], strlen(token) + 1, "%s", token);
-        
+            snprintf(args[num_args - 1], strlen(token) + 1, "%s", token);// O DUARTE NAO GOSTA
+
             printf("%s\n", token);
             token = strtok(NULL, " ");
         }
-        
+
         // Store the last NULL pointer
         num_args++;
         args = realloc(args, num_args * sizeof(*args));
@@ -91,8 +167,8 @@ int main(int argc, char** argv)
         //strcat(execs_path,args[0]);
 
         //execv(sdstore,args);
-        execvp("ls", args);
-        
+        execvp(args[0], args);
+
         free(aux_buff);
         close(input);
 
@@ -104,4 +180,12 @@ int main(int argc, char** argv)
         close(cliente);
     }
   return 0;
+}
+
+void terminate(int signum)
+{
+    unlink("tmp/pipCli");
+    unlink("tmp/pip");
+    pid_t p = getpid();
+    kill(p, SIGQUIT);
 }

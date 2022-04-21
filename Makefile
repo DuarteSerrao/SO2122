@@ -22,3 +22,4 @@ clean:
 test:
 	xfce4-terminal -e bin/sdstored
 	xfce4-terminal -e bin/sdstore
+#./bin/sdstored configuracao.txt ./SDStore-transf
