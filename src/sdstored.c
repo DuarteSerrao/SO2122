@@ -8,7 +8,7 @@ DEVELOPERS: a83630, Duarte Serrão
             axxxxx, Sebastião
 *******************************************************************************/
 #include <fcntl.h>
-#include <stdio.h>
+#include <stdio.h>      //Tirar isto mais tarde
 #include <sys/stat.h>
 #include <sys/wait.h>
 #include <unistd.h>
@@ -18,9 +18,9 @@ DEVELOPERS: a83630, Duarte Serrão
 #define BUFF_SIZE 1024
 #define MAX_ARGS  20
 #define ARG_SIZE  20
- // server
 
-void terminate(int signum){
+void terminate(int signum)
+{
     unlink("tmp/pipCli");
     unlink("tmp/pip");
     pid_t p = getpid();
@@ -58,7 +58,6 @@ int main(int argc, char** argv)
     {
         //Opening pipe [Client -> Server]
         int input = open("tmp/pip", O_RDONLY);
-
         char buff[BUFF_SIZE];
         char args[MAX_ARGS][ARG_SIZE];
         char* token = "";
