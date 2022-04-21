@@ -55,22 +55,11 @@ int main(int argc, char** argv)
     write(server, buff, args_size);
 	close(server);
 
-    //int input = open("tmp/pipCli", O_RDONLY);
-	//int i = 0;
-
-    //this is bad :(
-    //while(i<2){
-    //    char buf[BUFF_SIZE];
-    //    int n = read(input, buf, BUFF_SIZE);
-    //    if (n > 0)
-    //    {
-    //    	buf[n] = 0;
-	//		n++;
-	//		i++;
-	//		write(1, buf, n);
-	//    }
-    //}
-    //close(input);
+    int input = open("tmp/pipCli", O_RDONLY);
+    char buf[BUFF_SIZE];
+    int n = read(input, buf, BUFF_SIZE);
+    write(STDOUT_FILENO, buf, n);
+    close(input);
 
     return 0;
 }

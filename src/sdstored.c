@@ -58,35 +58,50 @@ int main(int argc, char** argv)
     {
         //Opening pipe [Client -> Server]
         int input = open("tmp/pip", O_RDONLY);
-        char buff[BUFF_SIZE];
-        char args[MAX_ARGS][ARG_SIZE];
-        char* token = "";
+        char buff[BUFF_SIZE] = "";
+        char **args = NULL;
+        unsigned int num_args = 0;
+        char *token = "";
 
         //Getting the size of what was actually read and copying it to an aux
         ssize_t n = read(input, buff, BUFF_SIZE);
         char *aux_buff = malloc(n*sizeof(char));
         strncpy(aux_buff, buff, n);
 
-        token = strtok(aux_buff," ");        
-        for(int i=0; token != NULL; i++)
-        {
-            strcpy(args[i],token);
-            printf("%s\n",token );
-            token = strtok(NULL," ");
+        token = strtok(aux_buff," ");  
 
+        while (token != NULL) {
+            num_args++;
+        
+            //Reallocate space for your argument list
+            args = realloc(args, num_args * sizeof(*args));
+        
+            //Copy the current argument
+            args[num_args - 1] = malloc(strlen(token) + 1); /* The +1 for length is for the terminating '\0' character */
+            snprintf(args[num_args - 1], strlen(token) + 1, "%s", token);
+        
+            printf("%s\n", token);
+            token = strtok(NULL, " ");
         }
-
+        
+        // Store the last NULL pointer
+        num_args++;
+        args = realloc(args, num_args * sizeof(*args));
+        args[num_args - 1] = NULL;
         //strcat(execs_path,args[0]);
 
         //execv(sdstore,args);
-        //execvp("ls",args);
+        execvp("ls", args);
+        
         free(aux_buff);
         close(input);
+
+
         //Opening pipe [Server -> Client]
-        //int cliente = open("tmp/pipCli", O_WRONLY);
-        //char* resposta = "O seu pedido esta a ser processado\n";
-        //write(cliente, resposta, strlen(resposta));
-        //close(cliente);
+        int cliente = open("tmp/pipCli", O_WRONLY);
+        aux_message = "O seu pedido foi processado\n";
+        write(cliente, aux_message, strlen(aux_message));
+        close(cliente);
     }
   return 0;
 }
