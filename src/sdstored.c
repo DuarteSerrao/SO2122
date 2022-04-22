@@ -16,12 +16,13 @@ DEVELOPERS: a83630, Duarte Serrão
 #include <stdlib.h>
 #include <stdbool.h>
 
+//COMMON VALUES
 #define BUFF_SIZE 1024
 #define MAX_ARGS  20
 #define ARG_SIZE  20
 
-void terminate(int signum);
 
+//NEW TYPES
 typedef int operations[7];
 
 typedef enum{
@@ -31,75 +32,29 @@ typedef enum{
   GCOMPRESS,
   GDECOMPRESS,
   ENCRYPT,
-  DECRYPT
+  DECRYPT,
+  NONE
 } operationType;
 
-bool parseConfig(char* buffer, operations operations)
-{
-    char* token =  strtok(buffer," ");
+const static struct {
+    operationType  val;
+    const char    *str;
+} conversion [] = {
+    {NOP,         "nop"},
+    {BCOMPRESS,   "bcompress"},
+    {BDECOMPRESS, "bdecompress"},
+    {GCOMPRESS,   "gcompress"},
+    {GDECOMPRESS, "gdecompress"},
+    {ENCRYPT,     "encrypt"},
+    {GDECOMPRESS, "gdecompress"},
+    {DECRYPT,     "decrypt"}
+};
 
-    while (token != NULL)
-    {
-      int tokenNumber = atoi(strtok(NULL,"\n"));
-      if(!strcmp(token,"nop"))
-      {
-          operations[NOP] = tokenNumber;
-      }
-      else if(!strcmp(token,"bcompress"))
-      {
-          operations[BCOMPRESS] = tokenNumber;
-      }
-      else if(!strcmp(token,"bdecompress"))
-      {
-        operations[BDECOMPRESS] = tokenNumber;
-      }
-      else if(!strcmp(token,"gcompress"))
-      {
-          operations[GCOMPRESS] = tokenNumber;
-      }
-      else if(!strcmp(token,"gdecompress"))
-      {
-          operations[GDECOMPRESS] = tokenNumber;
-      }
-      else if(!strcmp(token,"encrypt"))
-      {
-          operations[ENCRYPT] = tokenNumber;
-      }
-      else if(!strcmp(token,"decrypt"))
-      {
-          operations[DECRYPT] = tokenNumber;
-      } else return false;
-
-      token = strtok(NULL," ");
-    }
-
-    return true;
-}
-
-bool startUp(char* configFile, char* execPath, operations operations)
-{
-    bool ret = false;
-    char buffer[128];
-    int fd;
-
-    if((fd = open(configFile, O_RDONLY)) >= 0)
-    {
-        ssize_t n = read(fd,buffer,sizeof(buffer));
-
-        char *aux_buff = malloc(n*sizeof(char));
-        strncpy(aux_buff, buffer, n);
-
-        ret = parseConfig(aux_buff, operations);
-
-        free(aux_buff);
-    }
-    else return false;
-
-    ret = ((fd = open(execPath,O_RDONLY)) >= 0);
-    close(fd);
-
-    return ret;
-}
+//FUNCTIONS INDEX
+bool          parseConfig (char* buffer, operations operations);
+bool          startUp     (char* configFile, char* execPath, operations operations);
+operationType strToOpType (const char *str);
+void          terminate   (int signum);
 
 int main(int argc, char** argv)
 {
@@ -109,7 +64,7 @@ int main(int argc, char** argv)
     char *aux_message = "";
     operations operations;
     //validates input before starting server
-    if((argc != 2) || (!startUp(argv[1], argv[2], operations))) {
+    if((argc != 3) || (!startUp(argv[1], argv[2], operations))) {
       aux_message = "Input not valid.\n";
       write(STDERR_FILENO, aux_message, strlen(aux_message));
       return 1;
@@ -169,8 +124,11 @@ int main(int argc, char** argv)
         args[num_args - 1] = NULL;
         strcat(execs_path,args[0]);
 
+
+        printf("%s\n", execs_path);
+
         //execv(sdstore,args);
-        execvp(args[0], args);
+        //execvp(args[0], args);
 
         free(aux_buff);
         close(input);
@@ -197,4 +155,60 @@ void terminate(int signum)
     unlink("tmp/pip");
     pid_t p = getpid();
     kill(p, SIGQUIT);
+}
+
+
+operationType strToOpType (const char *str)
+{
+    for (int i = 0;  i < sizeof (conversion) / sizeof (conversion[0]);  ++i)
+        if (!strcmp (str, conversion[i].str))
+        {
+            printf("%d\n", conversion[i].val);
+            return conversion[i].val;   
+        } 
+    return NONE;
+}
+
+bool parseConfig(char* buffer, operations operations)
+{
+    char* token =  strtok(buffer," ");
+
+    while (token != NULL)
+    {
+        operationType type = strToOpType(token);
+        if(type != NONE)
+        {
+            operations[type] = atoi(strtok(NULL,"\n"));
+        }
+        else return false;
+
+      token = strtok(NULL," ");
+    }
+
+    return true;
+}
+
+bool startUp(char* configFile, char* execPath, operations operations)
+{
+    bool ret = false;
+    char buffer[128];
+    int fd;
+
+    if((fd = open(configFile, O_RDONLY)) >= 0)
+    {
+        ssize_t n = read(fd,buffer,sizeof(buffer));
+
+        char *aux_buff = malloc(n*sizeof(char));
+        strncpy(aux_buff, buffer, n);
+
+        ret = parseConfig(aux_buff, operations);
+
+        free(aux_buff);
+    }
+    else return false; 
+
+    ret = ((fd = open(execPath,O_RDONLY)) >= 0);
+    close(fd);
+
+    return ret;
 }
