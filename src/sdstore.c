@@ -29,15 +29,15 @@ int main(int argc, char** argv)
     signal(SIGTERM, terminate);
 
     char buff[BUFF_SIZE] = "";
-    char *aux_message = "";
-    int args_size = 0;
+    char *auxMessage = "";
+    int argsSize = 0;
 
     //Opening [Client -> Server] pipe and verifying if the server is ready
     int server = open("tmp/pip", O_WRONLY);
     if (server < 0)
     {
-        aux_message = "Server offline\n";
-        write(STDERR_FILENO, aux_message, strlen(aux_message));
+        auxMessage = "Server offline\n";
+        write(STDERR_FILENO, auxMessage, strlen(auxMessage));
 				close(server);
         return 1;
     }
@@ -48,11 +48,11 @@ int main(int argc, char** argv)
     {
         strcat(buff, argv[i]);
         strcat(buff," ");
-        args_size += strlen(argv[i]);
+        argsSize += strlen(argv[i]);
     }
 
     //sending them through the [Client -> Server] pipe and closing it afterwards
-    write(server, buff, args_size);
+    write(server, buff, argsSize);
 		close(server);
 
     int input = open("tmp/pipCli", O_RDONLY);
