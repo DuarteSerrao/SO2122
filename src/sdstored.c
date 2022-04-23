@@ -25,7 +25,8 @@ DEVELOPERS: a83630, Duarte Serrão
 //NEW TYPES
 typedef int operations[7];
 
-typedef enum{
+typedef enum
+{
   NOP,
   BCOMPRESS,
   BDECOMPRESS,
@@ -50,87 +51,69 @@ const static struct {
     {DECRYPT,     "decrypt"}
 };
 
+
 //FUNCTIONS INDEX
-bool          parseConfig (char* buffer, operations operations);
-bool          startUp     (char* configFile, char* execPath, operations operations);
+char**        parseArgs   (char *buff);
+bool          parseConfig (char *buffer, operations operations);
+bool          startUp     (char *configFile, char *execPath, operations operations);
 operationType strToOpType (const char *str);
 void          terminate   (int signum);
+bool          testPath    (char *path);
 
-int main(int argc, char** argv)
+/*******************************************************************************
+FUNCTION: Main function that will control the whole flow of the server
+*******************************************************************************/
+int main(int argc, char **argv)
 {
     signal(SIGINT, terminate);
     signal(SIGTERM, terminate);
 
-    char *aux_message = "";
+    char *auxMessage = "";
     operations operations;
     //validates input before starting server
     if((argc != 3) || (!startUp(argv[1], argv[2], operations))) {
-      aux_message = "Input not valid.\n";
-      write(STDERR_FILENO, aux_message, strlen(aux_message));
+      auxMessage = "Input not valid.\n";
+      write(STDERR_FILENO, auxMessage, strlen(auxMessage));
       return 1;
     }
 
-     char* execs_path = argv[2];
+     char *execsPath = argv[2];
 
-    aux_message = "Server starting...\n";
-    write(STDOUT_FILENO, aux_message, strlen(aux_message));
+    auxMessage = "Server starting...\n";
+    write(STDOUT_FILENO, auxMessage, strlen(auxMessage));
 
 
     //Making pipes
-    mkfifo("tmp/pipCli", 0644);
-    mkfifo("tmp/pip", 0644);
+    mkfifo("tmp/pipServCli", 0644);
+    mkfifo("tmp/pipCliServ", 0644);
 
-    aux_message = "Pipes created...\n";
-    write(STDOUT_FILENO, aux_message, strlen(aux_message));
+    auxMessage = "Pipes created...\n";
+    write(STDOUT_FILENO, auxMessage, strlen(auxMessage));
 
-    aux_message = "Listening...\n";
-    write(STDOUT_FILENO, aux_message, strlen(aux_message));
+    auxMessage = "Listening...\n";
+    write(STDOUT_FILENO, auxMessage, strlen(auxMessage));
 
     //Loop that will constantly listen for new requests
     while(1)
     {
         //Opening pipe [Client -> Server]
-        int input = open("tmp/pip", O_RDONLY);
+        int input = open("tmp/pipCliServ", O_RDONLY);
         char buff[BUFF_SIZE] = "";
-        char **args = NULL;
-        unsigned int num_args = 0;
-        char *token = "";
+
+        
 
         //Getting the size of what was actually read and copying it to an aux
         ssize_t n = read(input, buff, BUFF_SIZE);
-        char *aux_buff = malloc(n*sizeof(char));
-        strncpy(aux_buff, buff, n);
+        char *auxBuff = malloc(n*sizeof(char));
+        strncpy(auxBuff, buff, n);
 
-        token = strtok(aux_buff," ");
+        char **args = parseArgs(auxBuff);
 
-        while (token != NULL)
-        {
-            num_args++;
-
-            //Reallocate space for your argument list
-            args = realloc(args, num_args * sizeof(*args));
-
-            //Copy the current argument
-            args[num_args - 1] = malloc(strlen(token) + 1); /* The +1 for length is for the terminating '\0' character */
-            snprintf(args[num_args - 1], strlen(token) + 1, "%s", token);// O DUARTE NAO GOSTA
-
-            printf("%s\n", token);
-            token = strtok(NULL, " ");
-        }
-
-        // Store the last NULL pointer
-        num_args++;
-        args = realloc(args, num_args * sizeof(*args));
-        args[num_args - 1] = NULL;
-        strcat(execs_path,args[0]);
-
-
-        printf("%s\n", execs_path);
+        strcat(execsPath,args[0]);
 
         //execv(sdstore,args);
-        //execvp(args[0], args);
 
-        free(aux_buff);
+        free(auxBuff);
         close(input);
 
         /*char *srcFile = args[0];
@@ -141,14 +124,51 @@ int main(int argc, char** argv)
         exec(path, {arg[i], scr, dest})}*/
 
         //Opening pipe [Server -> Client]
-        int cliente = open("tmp/pipCli", O_WRONLY);
-        aux_message = "O seu pedido foi processado\n";
-        write(cliente, aux_message, strlen(aux_message));
+        int cliente = open("tmp/pipServCli", O_WRONLY);
+        auxMessage = "O seu pedido foi processado\n";
+        write(cliente, auxMessage, strlen(auxMessage));
         close(cliente);
     }
   return 0;
 }
 
+/*******************************************************************************
+FUNCTION: Gets all the arguments from the request
+*******************************************************************************/
+char** parseArgs(char *buff)
+{
+    char **args = NULL;
+    char *token = "";
+    unsigned int numArgs = 0;
+    token = strtok(buff," ");
+        //if(!strcmp())
+
+        while (token != NULL)
+        {
+            numArgs++;
+
+            //Reallocate space for your argument list
+            args = realloc(args, numArgs * sizeof(*args));
+
+            //Copy the current argument
+            args[numArgs - 1] = malloc(strlen(token) + 1); /* The +1 for length is for the terminating '\0' character */
+            snprintf(args[numArgs - 1], strlen(token) + 1, "%s", token);// O DUARTE NAO GOSTA
+
+            printf("%s\n", token);
+            token = strtok(NULL, " ");
+        }
+
+        // Store the last NULL pointer
+        numArgs++;
+        args = realloc(args, numArgs * sizeof(*args));
+        args[numArgs - 1] = NULL;
+        return args;
+}
+
+
+/*******************************************************************************
+FUNCTION: Gracefully exists the program
+*******************************************************************************/
 void terminate(int signum)
 {
     unlink("tmp/pipCli");
@@ -158,20 +178,38 @@ void terminate(int signum)
 }
 
 
+/*******************************************************************************
+FUNCTION: Checks if a path really existes and is accessable.
+*******************************************************************************/
+bool testPath(char *path)
+{
+    int fd;
+    bool ret = ((fd = open(path,O_RDONLY)) >= 0);
+    close(fd);
+    return ret;
+}
+
+/*******************************************************************************
+FUNCTION: From a string, it check if it is part of the enum operationType
+*******************************************************************************/
 operationType strToOpType (const char *str)
 {
     for (int i = 0;  i < sizeof (conversion) / sizeof (conversion[0]);  ++i)
         if (!strcmp (str, conversion[i].str))
         {
-            printf("%d\n", conversion[i].val);
             return conversion[i].val;   
         } 
     return NONE;
 }
 
-bool parseConfig(char* buffer, operations operations)
+
+/*******************************************************************************
+FUNCTION: Parses the configuration file and saves the max number of every opera-
+          tion type occurences
+*******************************************************************************/
+bool parseConfig(char *buffer, operations operations)
 {
-    char* token =  strtok(buffer," ");
+    char *token =  strtok(buffer," ");
 
     while (token != NULL)
     {
@@ -188,9 +226,13 @@ bool parseConfig(char* buffer, operations operations)
     return true;
 }
 
-bool startUp(char* configFile, char* execPath, operations operations)
+
+/*******************************************************************************
+FUNCTION: Prepares basic server startup information and checks if everything is
+          as it should
+*******************************************************************************/
+bool startUp(char *configFile, char *execPath, operations operations)
 {
-    bool ret = false;
     char buffer[128];
     int fd;
 
@@ -198,17 +240,14 @@ bool startUp(char* configFile, char* execPath, operations operations)
     {
         ssize_t n = read(fd,buffer,sizeof(buffer));
 
-        char *aux_buff = malloc(n*sizeof(char));
-        strncpy(aux_buff, buffer, n);
+        char *auxBuff = malloc(n*sizeof(char));
+        strncpy(auxBuff, buffer, n);
 
-        ret = parseConfig(aux_buff, operations);
+        if(!parseConfig(auxBuff, operations)) return false;
 
-        free(aux_buff);
+        free(auxBuff);
     }
     else return false; 
 
-    ret = ((fd = open(execPath,O_RDONLY)) >= 0);
-    close(fd);
-
-    return ret;
+    return testPath(execPath);
 }

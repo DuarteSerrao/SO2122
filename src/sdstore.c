@@ -33,7 +33,7 @@ int main(int argc, char** argv)
     int argsSize = 0;
 
     //Opening [Client -> Server] pipe and verifying if the server is ready
-    int server = open("tmp/pip", O_WRONLY);
+    int server = open("tmp/pipCliServ", O_WRONLY);
     if (server < 0)
     {
         auxMessage = "Server offline\n";
@@ -55,7 +55,7 @@ int main(int argc, char** argv)
     write(server, buff, argsSize);
 		close(server);
 
-    int input = open("tmp/pipCli", O_RDONLY);
+    int input = open("tmp/pipServCli", O_RDONLY);
     char buf[BUFF_SIZE];
     int n = read(input, buf, BUFF_SIZE);
     write(STDOUT_FILENO, buf, n);
