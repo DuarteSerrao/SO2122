@@ -51,11 +51,21 @@ const static struct {
     {DECRYPT,     "decrypt"}
 };
 
+enum requestArgIndex
+{
+    TYPE,
+    SRC_FILE,
+    DEST_FILE,
+    ARGS
+};
+
 
 //FUNCTIONS INDEX
 char**        parseArgs   (char *buff);
 bool          parseConfig (char *buffer, operations operations);
+void          procFileFunc(char **args);
 bool          startUp     (char *configFile, char *execPath, operations operations);
+char*         statusFunc  ();
 operationType strToOpType (const char *str);
 void          terminate   (int signum);
 bool          testPath    (char *path);
@@ -72,9 +82,9 @@ int main(int argc, char **argv)
     operations operations;
     //validates input before starting server
     if((argc != 3) || (!startUp(argv[1], argv[2], operations))) {
-      auxMessage = "Input not valid.\n";
-      write(STDERR_FILENO, auxMessage, strlen(auxMessage));
-      return 1;
+        auxMessage = "Input not valid.\n";
+        write(STDERR_FILENO, auxMessage, strlen(auxMessage));
+        return 1;
     }
 
      char *execsPath = argv[2];
@@ -87,6 +97,8 @@ int main(int argc, char **argv)
     mkfifo("tmp/pipServCli", 0644);
     mkfifo("tmp/pipCliServ", 0644);
 
+    
+
     auxMessage = "Pipes created...\n";
     write(STDOUT_FILENO, auxMessage, strlen(auxMessage));
 
@@ -98,39 +110,101 @@ int main(int argc, char **argv)
     {
         //Opening pipe [Client -> Server]
         int input = open("tmp/pipCliServ", O_RDONLY);
-        char buff[BUFF_SIZE] = "";
+        if(input < 0)
+        {
+            auxMessage = "Couldn't open pipe Client->Server.\n";
+            write(STDERR_FILENO, auxMessage, strlen(auxMessage));
+            return 2;
+        }
 
-        
+        char buff[BUFF_SIZE] = "";
 
         //Getting the size of what was actually read and copying it to an aux
         ssize_t n = read(input, buff, BUFF_SIZE);
+
+        auxMessage = "Request received from client\n";
+        write(STDOUT_FILENO, auxMessage, strlen(auxMessage));
+
         char *auxBuff = malloc(n*sizeof(char));
         strncpy(auxBuff, buff, n);
 
+        
+
         char **args = parseArgs(auxBuff);
-
-        strcat(execsPath,args[0]);
-
-        //execv(sdstore,args);
 
         free(auxBuff);
         close(input);
 
-        /*char *srcFile = args[0];
-        char *destFile = args[1];
-        testPath(char *path);
-        for(i){
-        path = concat
-        exec(path, {arg[i], scr, dest})}*/
-
         //Opening pipe [Server -> Client]
-        int cliente = open("tmp/pipServCli", O_WRONLY);
-        auxMessage = "O seu pedido foi processado\n";
-        write(cliente, auxMessage, strlen(auxMessage));
-        close(cliente);
+        int client = open("tmp/pipServCli", O_WRONLY);
+        if(client < 0)//In case we can't communicate back with client, we choose not to continue the request
+        {
+            auxMessage = "Couldn't open pipe Server->Client.\n";
+            write(STDERR_FILENO, auxMessage, strlen(auxMessage));
+            continue;
+        }
+
+        
+        if(!strcmp(args[TYPE], "proc_file"))
+        {
+            auxMessage = "Request type: PROCESS FILE\n";
+            write(STDOUT_FILENO, auxMessage, strlen(auxMessage));
+            procFileFunc(args);
+            auxMessage = "O seu pedido foi processado\n";
+        }
+        else if(!strcmp(args[TYPE], "status"))
+        {
+            auxMessage = "Request type: STATUS\n";
+            write(STDOUT_FILENO, auxMessage, strlen(auxMessage));
+            auxMessage = statusFunc (); 
+        }
+        else 
+        {
+            auxMessage = "Request type: ERROR\n";
+            write(STDOUT_FILENO, auxMessage, strlen(auxMessage));
+            auxMessage = "Options available: 'proc_file' or 'status'\n";
+        }
+
+        write(client, auxMessage, strlen(auxMessage));
+        close(client);
     }
   return 0;
 }
+
+
+/*******************************************************************************
+FUNCTION: Function for a 'status' request
+*******************************************************************************/
+char* statusFunc ()
+{
+    //code here :D
+    return "STATUS\n";
+    
+}
+
+
+/*******************************************************************************
+FUNCTION: Function for a 'process file' request
+*******************************************************************************/
+void procFileFunc(char **args)
+{
+    char *destFile = malloc((strlen(args[DEST_FILE])+3)*sizeof(char));
+    strcpy(destFile, "<");
+    strcat(destFile, args[DEST_FILE]);
+    strcat(destFile, ">");
+
+    //for(int i = ARGS; args[i]!=NULL; i++)
+    //{
+    //    char *path = "";
+    //    strcpy(path, execsPath);
+    //    strcat(path,args[i]);
+    //    char *argsExec[3] = {args[i], args[SRC_FILE], destFile};
+    //    if(fork() == 0) execv(path, argsExec);
+    //    //else wait(&status);
+    //}
+    free(destFile);
+}
+
 
 /*******************************************************************************
 FUNCTION: Gets all the arguments from the request
@@ -153,8 +227,6 @@ char** parseArgs(char *buff)
             //Copy the current argument
             args[numArgs - 1] = malloc(strlen(token) + 1); /* The +1 for length is for the terminating '\0' character */
             snprintf(args[numArgs - 1], strlen(token) + 1, "%s", token);// O DUARTE NAO GOSTA
-
-            printf("%s\n", token);
             token = strtok(NULL, " ");
         }
 
@@ -171,8 +243,8 @@ FUNCTION: Gracefully exists the program
 *******************************************************************************/
 void terminate(int signum)
 {
-    unlink("tmp/pipCli");
-    unlink("tmp/pip");
+    unlink("tmp/pipServCli");
+    unlink("tmp/pipCliServ");
     pid_t p = getpid();
     kill(p, SIGQUIT);
 }
