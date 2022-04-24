@@ -193,30 +193,32 @@ void procFileFunc(char **args, char* execsPath)
 {
     for(int i = ARGS; args[i]!=NULL; i++)
     {
-        char *path = malloc((strlen(execsPath)+strlen(args[i])+2)*sizeof(char)); //+2 because of "/" and "\0"
-        strcpy(path, execsPath);
-        strcat(path, "/");
-        strcat(path,args[i]);
-        char *argsExec[] = {args[i], "<", args[SRC_FILE], ">", args[DEST_FILE],NULL};
-        char *teste[] = {path, "<", "teste", ">", "teste1", NULL};
-        char *teste2[] = {"ls", NULL};
-        int child_pid;
+        //Preparing command to send through the exec
+        char command[BUFF_SIZE] = "";
+        strcpy(command, execsPath);
+        strcat(command, "/");
+        strcat(command,args[i]);
+        strcat(command, " < ");
+        strcat(command, args[SRC_FILE]);
+        strcat(command, " > ");
+        strcat(command, args[DEST_FILE]);
 
-        printf("%s\n", path);
+        //We need to run through bash since we have '<' and '>' characters
+        char *argsExec[] = {"sh", "-c", command , NULL};
 
-        if((child_pid = fork()) == 0)
+        //Since exec will substitute this process if successful, we need to encase it in an new process
+        int child_pid = fork();
+        if(child_pid == 0)
         {
-            //execv(path, argsExec);
-            execv(path, teste);
-            //execv("/bin/ls", teste2);
+            execv("/bin/sh", argsExec);;
             sendMessage(STDERR_FILENO, "execv failed :/\n");
             exit(0);
         }
         else
         {
-            //int status;
-            //wait(&status);
-            waitpid(child_pid,1,0);
+            int status;
+            wait(&status);
+            //waitpid(child_pid,1,0);
         }
 
         sendMessage(STDOUT_FILENO, "aqui\n");
