@@ -71,6 +71,8 @@ operationType strToOpType (const char *str);
 void          terminate   (int signum);
 bool          testPath    (char *path);
 
+
+
 /*******************************************************************************
 FUNCTION: Main function that will control the whole flow of the server
 *******************************************************************************/
@@ -86,7 +88,6 @@ int main(int argc, char **argv)
     strcpy(execsPath, getenv("PWD"));
     strcat(execsPath, "/");
     strcat(execsPath, argv[2]);
-    printf("%s\n", execsPath);
 
     //validates input before starting server
     if((argc != 3) || (!startUp(argv[1], execsPath, operations))) {
@@ -120,15 +121,11 @@ int main(int argc, char **argv)
 
         //Getting the size of what was actually read
         ssize_t n = read(input, buff, BUFF_SIZE);
-        sendMessage(STDOUT_FILENO, "Request received from client\n");
+        buff[n] = '\0';
+        sendMessage(STDOUT_FILENO, "Request received from client\n");        
 
+        char **args = parseArgs(buff);
 
-        char *auxBuff = malloc(n*sizeof(char));
-        strncpy(auxBuff, buff, n);
-
-        char **args = parseArgs(auxBuff);
-
-        free(auxBuff);
         close(input);
 
         //Opening pipe [Server -> Client]
@@ -145,10 +142,12 @@ int main(int argc, char **argv)
             sendMessage(STDOUT_FILENO, "Request type: PROCESS FILE\n");
             sendMessage(client, "Your request will be processed now\n");
 
+
             procFileFunc(args, execsPath);
             
-            sendMessage(client, "Your request was processed\n");
+
             sendMessage(STDOUT_FILENO, "Request processed\n");
+            sendMessage(client, "Your request was processed\n");
         }
         else if(!strcmp(args[TYPE], "status"))
         {
@@ -161,7 +160,11 @@ int main(int argc, char **argv)
             sendMessage(client, "Options available: 'proc_file' or 'status'\n");
         }
 
+        //We need a delay to give the client the oportunity to read the messages seperatly
+        sleep(0.05);
+        sendMessage(client, "quit");
         close(client);
+
     }
   return 0;
 }
@@ -220,8 +223,7 @@ void procFileFunc(char **args, char* execsPath)
             wait(&status);
             //waitpid(child_pid,1,0);
         }
-
-        sendMessage(STDOUT_FILENO, "aqui\n");
+        
     }
 }
 

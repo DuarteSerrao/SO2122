@@ -15,6 +15,7 @@ DEVELOPERS: a83630, Duarte Serrão
 #include <stdlib.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
+#include <stdbool.h>
 
 #define BUFF_SIZE 1024
 
@@ -29,6 +30,7 @@ int main(int argc, char** argv)
     signal(SIGTERM, terminate);
 
     char buff[BUFF_SIZE] = "";
+    strcpy(buff, "");
     char *auxMessage = "";
     int argsSize = 0;
 
@@ -46,9 +48,10 @@ int main(int argc, char** argv)
     //This way, we dont make a lot of system calls and send everything together
     for (int i = 1; i < argc; i++)
     {
+        argsSize += strlen(argv[i])+1;
         strcat(buff, argv[i]);
         strcat(buff," ");
-        argsSize += strlen(argv[i])+1;
+        
     }
 
     //sending them through the [Client -> Server] pipe and closing it afterwards
@@ -56,10 +59,18 @@ int main(int argc, char** argv)
 	close(server);
 
     int input = open("tmp/pipServCli", O_RDONLY);
-    char buf[BUFF_SIZE];
-    int n = read(input, buf, BUFF_SIZE);
-    write(STDOUT_FILENO, buf, n);
+    
+    bool listening = true;
+    while(listening)
+    {        
+        int n = read(input, buff, BUFF_SIZE);
+        buff[n] = '\0';
+        //enters if statement if it is not equal to "quit"
+        if((listening = strcmp(buff, "quit")))
+        {
+            write(STDOUT_FILENO, buff, n);
+        }
+    }
     close(input);
-
     return 0;
 }
