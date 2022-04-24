@@ -104,7 +104,7 @@ int main(int argc, char **argv)
     mkfifo("tmp/pipServCli", 0644);
     mkfifo("tmp/pipCliServ", 0644);
 
-    sendMessage(STDOUT_FILENO, "Pipes created...\nListening...\n");
+    sendMessage(STDOUT_FILENO, "Pipes created...\nListening...\n---------------------------------------\n");
 
     //Loop that will constantly listen for new requests
     while(1)
@@ -113,7 +113,7 @@ int main(int argc, char **argv)
         int input = open("tmp/pipCliServ", O_RDONLY);
         if(input < 0)
         {
-            sendMessage(STDERR_FILENO, "Couldn't open pipe Client->Server.\n");
+            sendMessage(STDERR_FILENO, "Couldn't open pipe Client->Server.\n---------------------------------------\n");
             return 2;
         }
 
@@ -146,17 +146,17 @@ int main(int argc, char **argv)
             procFileFunc(args, execsPath);
             
 
-            sendMessage(STDOUT_FILENO, "Request processed\n");
+            sendMessage(STDOUT_FILENO, "Request processed\n---------------------------------------\n");
             sendMessage(client, "Your request was processed\n");
         }
         else if(!strcmp(args[TYPE], "status"))
         {
-            sendMessage(STDOUT_FILENO, "Request type: STATUS\n");
+            sendMessage(STDOUT_FILENO, "Request type: STATUS\n---------------------------------------\n");
             sendMessage(client, statusFunc ());
         }
         else 
         {
-            sendMessage(STDOUT_FILENO, "Request type: ERROR\n");
+            sendMessage(STDOUT_FILENO, "Request type: ERROR\n---------------------------------------\n");
             sendMessage(client, "Options available: 'proc_file' or 'status'\n");
         }
 
