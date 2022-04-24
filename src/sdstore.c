@@ -4,8 +4,8 @@ PROJECT:    SDSTORE-TRANSF
 MODULE:     CLIENT
 PURPOSE:    Send requests to server and wait for response
 DEVELOPERS: a83630, Duarte Serrão
-            axxxxx, Renato
-            axxxxx, Sebastião
+            a84696, Renato Gomes
+            a71074, Sebastião Freitas
 *******************************************************************************/
 #include <fcntl.h>
 #include <stdio.h>  //Tirar isto mais tarde

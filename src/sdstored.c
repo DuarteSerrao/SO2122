@@ -4,8 +4,8 @@ PROJECT:    SDSTORE-TRANSF
 MODULE:     SERVER
 PURPOSE:    Get request(s) from client(s) and process them
 DEVELOPERS: a83630, Duarte Serrão
-            axxxxx, Renato
-            axxxxx, Sebastião
+            a84696, Renato Gomes
+            a71074, Sebastião Freitas
 *******************************************************************************/
 #include <fcntl.h>
 #include <stdio.h>      //Tirar isto mais tarde
@@ -20,10 +20,12 @@ DEVELOPERS: a83630, Duarte Serrão
 #define BUFF_SIZE 1024
 #define MAX_ARGS  20
 #define ARG_SIZE  20
+#define MAX_OPS   7
 
 
 //NEW TYPES
-typedef int operations[7];
+int maxOperations[MAX_OPS];
+int operations[MAX_OPS];
 
 typedef enum
 {
@@ -61,11 +63,12 @@ enum requestArgIndex
 
 
 //FUNCTIONS INDEX
+bool          checkOps    (char *args[], int *opsCounter);
 char**        parseArgs   (char *buff);
-bool          parseConfig (char *buffer, operations operations);
+bool          parseConfig (char *buffer);
 void          procFileFunc(char **args, char *execsPath);
 void          sendMessage (int output, char *message);
-bool          startUp     (char *configFile, char *execsPath, operations operations);
+bool          startUp     (char *configFile, char *execsPath);
 char*         statusFunc  ();
 operationType strToOpType (const char *str);
 void          terminate   (int signum);
@@ -81,8 +84,6 @@ int main(int argc, char **argv)
     signal(SIGINT, terminate);
     signal(SIGTERM, terminate);
 
-    operations operations;
-
     //We need to get absolute path for execv
     char *execsPath = malloc((strlen(getenv("PWD")) + strlen(argv[2]) + 2) * sizeof(char));
     strcpy(execsPath, getenv("PWD"));
@@ -90,7 +91,7 @@ int main(int argc, char **argv)
     strcat(execsPath, argv[2]);
 
     //validates input before starting server
-    if((argc != 3) || (!startUp(argv[1], execsPath, operations))) {
+    if((argc != 3) || (!startUp(argv[1], execsPath))) {
         sendMessage(STDERR_FILENO, "Input not valid. Needs a valid configuration file and a relative path to executables\n");
         return 1;
     }
@@ -137,17 +138,30 @@ int main(int argc, char **argv)
         }
 
         
-        if(!strcmp(args[TYPE], "proc_file"))
+        if(!strcmp(args[TYPE], "proc-file"))
         {
             sendMessage(STDOUT_FILENO, "Request type: PROCESS FILE\n");
             sendMessage(client, "Your request will be processed now\n");
 
+            int opsCounter[MAX_OPS];
+            if(!checkOps(args+ARGS, opsCounter))
+            {
+                sendMessage(client, "Full Capacity. Try again :)\n");
+                sendMessage(STDOUT_FILENO, "---------------------------------------\n");
+            }
+            else
+            {
+                for(int i = 0; i < MAX_OPS; i++) operations[i] += opsCounter[i];
 
-            procFileFunc(args, execsPath);
+                procFileFunc(args, execsPath);
+
+                for(int i = 0; i < MAX_OPS; i++) operations[i] -= opsCounter[i];
+
+                sendMessage(STDOUT_FILENO, "Request processed\n---------------------------------------\n");
+                sendMessage(client, "Your request was processed\n");
+            }
+
             
-
-            sendMessage(STDOUT_FILENO, "Request processed\n---------------------------------------\n");
-            sendMessage(client, "Your request was processed\n");
         }
         else if(!strcmp(args[TYPE], "status"))
         {
@@ -176,6 +190,32 @@ void sendMessage(int output, char *message)
 {
     write(output, message, strlen(message));
 }
+
+
+/*******************************************************************************
+FUNCTION: 
+*******************************************************************************/
+bool checkOps(char *args[], int *opsCounter)
+{
+
+    for(int i = 0; i < MAX_OPS; i++) opsCounter[i] = operations[i];
+
+    for(int i = 0; args[i] != NULL; i++)
+    {
+        operationType type = strToOpType(args[i]);
+        opsCounter[type]++;
+    }
+
+    for(int i = 0; i<MAX_OPS; i++) 
+        if(opsCounter[i] > maxOperations[i])
+        {
+            opsCounter = NULL;
+            return false;
+        }
+
+    return true;
+}
+
 
 
 /*******************************************************************************
@@ -213,7 +253,7 @@ void procFileFunc(char **args, char* execsPath)
         int child_pid = fork();
         if(child_pid == 0)
         {
-            execv("/bin/sh", argsExec);;
+            execv("/bin/sh", argsExec);
             sendMessage(STDERR_FILENO, "execv failed :/\n");
             exit(0);
         }
@@ -301,7 +341,7 @@ operationType strToOpType (const char *str)
 FUNCTION: Parses the configuration file and saves the max number of every opera-
           tion type occurences
 *******************************************************************************/
-bool parseConfig(char *buffer, operations operations)
+bool parseConfig(char *buffer)
 {
     char *token =  strtok(buffer," ");
 
@@ -310,7 +350,7 @@ bool parseConfig(char *buffer, operations operations)
         operationType type = strToOpType(token);
         if(type != NONE)
         {
-            operations[type] = atoi(strtok(NULL,"\n"));
+            maxOperations[type] = atoi(strtok(NULL,"\n"));
         }
         else return false;
 
@@ -325,7 +365,7 @@ bool parseConfig(char *buffer, operations operations)
 FUNCTION: Prepares basic server startup information and checks if everything is
           as it should
 *******************************************************************************/
-bool startUp(char *configFile, char *execsPath, operations operations)
+bool startUp(char *configFile, char *execsPath)
 {
     char buffer[128];
     int fd;
@@ -337,7 +377,7 @@ bool startUp(char *configFile, char *execsPath, operations operations)
         char *auxBuff = malloc(n*sizeof(char));
         strncpy(auxBuff, buffer, n);
 
-        if(!parseConfig(auxBuff, operations)) return false;
+        if(!parseConfig(auxBuff)) return false;
 
         free(auxBuff);
     }
