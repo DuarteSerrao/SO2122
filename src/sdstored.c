@@ -63,8 +63,9 @@ enum requestArgIndex
 //FUNCTIONS INDEX
 char**        parseArgs   (char *buff);
 bool          parseConfig (char *buffer, operations operations);
-void          procFileFunc(char **args);
-bool          startUp     (char *configFile, char *execPath, operations operations);
+void          procFileFunc(char **args, char *execsPath);
+void          sendMessage (int output, char *message);
+bool          startUp     (char *configFile, char *execsPath, operations operations);
 char*         statusFunc  ();
 operationType strToOpType (const char *str);
 void          terminate   (int signum);
@@ -78,32 +79,31 @@ int main(int argc, char **argv)
     signal(SIGINT, terminate);
     signal(SIGTERM, terminate);
 
-    char *auxMessage = "";
     operations operations;
+
+    //We need to get absolute path for execv
+    char *execsPath = malloc((strlen(getenv("PWD")) + strlen(argv[2]) + 2) * sizeof(char));
+    strcpy(execsPath, getenv("PWD"));
+    strcat(execsPath, "/");
+    strcat(execsPath, argv[2]);
+    printf("%s\n", execsPath);
+
     //validates input before starting server
-    if((argc != 3) || (!startUp(argv[1], argv[2], operations))) {
-        auxMessage = "Input not valid.\n";
-        write(STDERR_FILENO, auxMessage, strlen(auxMessage));
+    if((argc != 3) || (!startUp(argv[1], execsPath, operations))) {
+        sendMessage(STDERR_FILENO, "Input not valid. Needs a valid configuration file and a relative path to executables\n");
         return 1;
     }
 
-     char *execsPath = argv[2];
 
-    auxMessage = "Server starting...\n";
-    write(STDOUT_FILENO, auxMessage, strlen(auxMessage));
+
+    sendMessage(STDOUT_FILENO, "Server starting...\n");
 
 
     //Making pipes
     mkfifo("tmp/pipServCli", 0644);
     mkfifo("tmp/pipCliServ", 0644);
 
-    
-
-    auxMessage = "Pipes created...\n";
-    write(STDOUT_FILENO, auxMessage, strlen(auxMessage));
-
-    auxMessage = "Listening...\n";
-    write(STDOUT_FILENO, auxMessage, strlen(auxMessage));
+    sendMessage(STDOUT_FILENO, "Pipes created...\nListening...\n");
 
     //Loop that will constantly listen for new requests
     while(1)
@@ -112,23 +112,19 @@ int main(int argc, char **argv)
         int input = open("tmp/pipCliServ", O_RDONLY);
         if(input < 0)
         {
-            auxMessage = "Couldn't open pipe Client->Server.\n";
-            write(STDERR_FILENO, auxMessage, strlen(auxMessage));
+            sendMessage(STDERR_FILENO, "Couldn't open pipe Client->Server.\n");
             return 2;
         }
 
         char buff[BUFF_SIZE] = "";
 
-        //Getting the size of what was actually read and copying it to an aux
+        //Getting the size of what was actually read
         ssize_t n = read(input, buff, BUFF_SIZE);
+        sendMessage(STDOUT_FILENO, "Request received from client\n");
 
-        auxMessage = "Request received from client\n";
-        write(STDOUT_FILENO, auxMessage, strlen(auxMessage));
 
         char *auxBuff = malloc(n*sizeof(char));
         strncpy(auxBuff, buff, n);
-
-        
 
         char **args = parseArgs(auxBuff);
 
@@ -139,36 +135,43 @@ int main(int argc, char **argv)
         int client = open("tmp/pipServCli", O_WRONLY);
         if(client < 0)//In case we can't communicate back with client, we choose not to continue the request
         {
-            auxMessage = "Couldn't open pipe Server->Client.\n";
-            write(STDERR_FILENO, auxMessage, strlen(auxMessage));
+            sendMessage(STDERR_FILENO, "Couldn't open pipe Server->Client.\n");
             continue;
         }
 
         
         if(!strcmp(args[TYPE], "proc_file"))
         {
-            auxMessage = "Request type: PROCESS FILE\n";
-            write(STDOUT_FILENO, auxMessage, strlen(auxMessage));
-            procFileFunc(args);
-            auxMessage = "O seu pedido foi processado\n";
+            sendMessage(STDOUT_FILENO, "Request type: PROCESS FILE\n");
+            sendMessage(client, "Your request will be processed now\n");
+
+            procFileFunc(args, execsPath);
+            
+            sendMessage(client, "Your request was processed\n");
+            sendMessage(STDOUT_FILENO, "Request processed\n");
         }
         else if(!strcmp(args[TYPE], "status"))
         {
-            auxMessage = "Request type: STATUS\n";
-            write(STDOUT_FILENO, auxMessage, strlen(auxMessage));
-            auxMessage = statusFunc (); 
+            sendMessage(STDOUT_FILENO, "Request type: STATUS\n");
+            sendMessage(client, statusFunc ());
         }
         else 
         {
-            auxMessage = "Request type: ERROR\n";
-            write(STDOUT_FILENO, auxMessage, strlen(auxMessage));
-            auxMessage = "Options available: 'proc_file' or 'status'\n";
+            sendMessage(STDOUT_FILENO, "Request type: ERROR\n");
+            sendMessage(client, "Options available: 'proc_file' or 'status'\n");
         }
 
-        write(client, auxMessage, strlen(auxMessage));
         close(client);
     }
   return 0;
+}
+
+/*******************************************************************************
+FUNCTION: Send message from a literal string to an output
+*******************************************************************************/
+void sendMessage(int output, char *message)
+{
+    write(output, message, strlen(message));
 }
 
 
@@ -186,23 +189,38 @@ char* statusFunc ()
 /*******************************************************************************
 FUNCTION: Function for a 'process file' request
 *******************************************************************************/
-void procFileFunc(char **args)
+void procFileFunc(char **args, char* execsPath)
 {
-    char *destFile = malloc((strlen(args[DEST_FILE])+3)*sizeof(char));
-    strcpy(destFile, "<");
-    strcat(destFile, args[DEST_FILE]);
-    strcat(destFile, ">");
+    for(int i = ARGS; args[i]!=NULL; i++)
+    {
+        char *path = malloc((strlen(execsPath)+strlen(args[i])+2)*sizeof(char)); //+2 because of "/" and "\0"
+        strcpy(path, execsPath);
+        strcat(path, "/");
+        strcat(path,args[i]);
+        char *argsExec[] = {args[i], "<", args[SRC_FILE], ">", args[DEST_FILE],NULL};
+        char *teste[] = {path, "<", "teste", ">", "teste1", NULL};
+        char *teste2[] = {"ls", NULL};
+        int child_pid;
 
-    //for(int i = ARGS; args[i]!=NULL; i++)
-    //{
-    //    char *path = "";
-    //    strcpy(path, execsPath);
-    //    strcat(path,args[i]);
-    //    char *argsExec[3] = {args[i], args[SRC_FILE], destFile};
-    //    if(fork() == 0) execv(path, argsExec);
-    //    //else wait(&status);
-    //}
-    free(destFile);
+        printf("%s\n", path);
+
+        if((child_pid = fork()) == 0)
+        {
+            //execv(path, argsExec);
+            execv(path, teste);
+            //execv("/bin/ls", teste2);
+            sendMessage(STDERR_FILENO, "execv failed :/\n");
+            exit(0);
+        }
+        else
+        {
+            //int status;
+            //wait(&status);
+            waitpid(child_pid,1,0);
+        }
+
+        sendMessage(STDOUT_FILENO, "aqui\n");
+    }
 }
 
 
@@ -217,24 +235,24 @@ char** parseArgs(char *buff)
     token = strtok(buff," ");
         //if(!strcmp())
 
-        while (token != NULL)
-        {
-            numArgs++;
-
-            //Reallocate space for your argument list
-            args = realloc(args, numArgs * sizeof(*args));
-
-            //Copy the current argument
-            args[numArgs - 1] = malloc(strlen(token) + 1); /* The +1 for length is for the terminating '\0' character */
-            snprintf(args[numArgs - 1], strlen(token) + 1, "%s", token);// O DUARTE NAO GOSTA
-            token = strtok(NULL, " ");
-        }
-
-        // Store the last NULL pointer
+    while (token != NULL)
+    {
         numArgs++;
+
+        //Reallocate space for your argument list
         args = realloc(args, numArgs * sizeof(*args));
-        args[numArgs - 1] = NULL;
-        return args;
+
+        //Copy the current argument
+        args[numArgs - 1] = malloc(strlen(token) + 1); /* The +1 for length is for the terminating '\0' character */
+        snprintf(args[numArgs - 1], strlen(token) + 1, "%s", token);// O DUARTE NAO GOSTA
+        token = strtok(NULL, " ");
+    }
+
+    // Store the last NULL pointer
+    numArgs++;
+    args = realloc(args, numArgs * sizeof(*args));
+    args[numArgs - 1] = NULL;
+    return args;
 }
 
 
@@ -303,7 +321,7 @@ bool parseConfig(char *buffer, operations operations)
 FUNCTION: Prepares basic server startup information and checks if everything is
           as it should
 *******************************************************************************/
-bool startUp(char *configFile, char *execPath, operations operations)
+bool startUp(char *configFile, char *execsPath, operations operations)
 {
     char buffer[128];
     int fd;
@@ -321,5 +339,5 @@ bool startUp(char *configFile, char *execPath, operations operations)
     }
     else return false; 
 
-    return testPath(execPath);
+    return testPath(execsPath);
 }

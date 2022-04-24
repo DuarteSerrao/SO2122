@@ -38,7 +38,7 @@ int main(int argc, char** argv)
     {
         auxMessage = "Server offline\n";
         write(STDERR_FILENO, auxMessage, strlen(auxMessage));
-				close(server);
+		close(server);
         return 1;
     }
 
@@ -48,12 +48,12 @@ int main(int argc, char** argv)
     {
         strcat(buff, argv[i]);
         strcat(buff," ");
-        argsSize += strlen(argv[i]);
+        argsSize += strlen(argv[i])+1;
     }
 
     //sending them through the [Client -> Server] pipe and closing it afterwards
     write(server, buff, argsSize);
-		close(server);
+	close(server);
 
     int input = open("tmp/pipServCli", O_RDONLY);
     char buf[BUFF_SIZE];
