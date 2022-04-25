@@ -66,11 +66,13 @@ int main(int argc, char** argv)
         return 2;
     }
     
-    int n = 0;
-    while((n = read(input, buff, BUFF_SIZE)) != -1)
-    {        
+    bool listening = true;
+    while(listening)
+    {       
+        int n = read(input, buff, BUFF_SIZE);
         buff[n] = '\0';
         write(STDOUT_FILENO, buff, n);
+        if(access("tmp/pipServCli", F_OK) != 0) listening = false;
     }
     close(input);
     return 0;
