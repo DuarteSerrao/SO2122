@@ -103,14 +103,14 @@ int main(int argc, char **argv)
 
     //Making pipes
     mkfifo("tmp/pipServCli", 0644);
-    mkfifo("tmp/pipCliServ", 0644);
 
-    sendMessage(STDOUT_FILENO, "Pipes created...\nListening...\n---------------------------------------\n");
+    sendMessage(STDOUT_FILENO, "Recieving pipe created...\nListening...\n---------------------------------------\n");
 
     //Loop that will constantly listen for new requests
     while(1)
     {
         //Opening pipe [Client -> Server]
+        mkfifo("tmp/pipCliServ", 0644);
         int input = open("tmp/pipCliServ", O_RDONLY);
         if(input < 0)
         {
@@ -153,7 +153,11 @@ int main(int argc, char **argv)
             {
                 for(int i = 0; i < MAX_OPS; i++) operations[i] += opsCounter[i];
 
-                procFileFunc(args, execsPath);
+                //Since procFile will mess with STDIN and STDOUT
+                if(fork() == 0) procFileFunc(args, execsPath);
+
+                int status;
+                waitpid(0, &status, 0);
 
                 for(int i = 0; i < MAX_OPS; i++) operations[i] -= opsCounter[i];
 
@@ -173,12 +177,8 @@ int main(int argc, char **argv)
             sendMessage(STDOUT_FILENO, "Request type: ERROR\n---------------------------------------\n");
             sendMessage(client, "Options available: 'proc_file' or 'status'\n");
         }
-
-        //We need a delay to give the client the oportunity to read the messages seperatly
-        sleep(0.05);
-        sendMessage(client, "quit");
         close(client);
-
+        unlink("tmp/pipServCli");
     }
   return 0;
 }
@@ -233,38 +233,70 @@ char* statusFunc ()
 FUNCTION: Function for a 'process file' request
 *******************************************************************************/
 void procFileFunc(char **args, char* execsPath)
-{
-    for(int i = ARGS; args[i]!=NULL; i++)
+{    
+    int i = ARGS;
+    int fd[2];
+    if(pipe(fd) == -1)
     {
-        //Preparing command to send through the exec
-        char command[BUFF_SIZE] = "";
-        strcpy(command, execsPath);
-        strcat(command, "/");
-        strcat(command,args[i]);
-        strcat(command, " < ");
-        strcat(command, args[SRC_FILE]);
-        strcat(command, " > ");
-        strcat(command, args[DEST_FILE]);
+        sendMessage(STDERR_FILENO, "pipe failed :/\n");
+        return;
+    }
 
-        //We need to run through bash since we have '<' and '>' characters
-        char *argsExec[] = {"sh", "-c", command , NULL};
+    int input = open(args[SRC_FILE], O_RDONLY);
+    if(input < 0) return;
+
+    dup2(input, STDIN_FILENO);
+    close(input);
+
+
+    for(i = ARGS; args[i+1]!=NULL; i++)
+    {
+        
+        //Preparing command to send through the exec
+        char path[BUFF_SIZE] = "";
+        strcpy(path, execsPath);
+        strcat(path, "/");
+        strcat(path,args[i]);
 
         //Since exec will substitute this process if successful, we need to encase it in an new process
         int child_pid = fork();
         if(child_pid == 0)
         {
-            execv("/bin/sh", argsExec);
-            sendMessage(STDERR_FILENO, "execv failed :/\n");
+           
+            dup2(fd[1], STDOUT_FILENO);
+            close(fd[0]);
+            close(fd[1]);
+            execl(path, path, NULL);
+            //execlp("ls", "ls", NULL);
+            sendMessage(STDERR_FILENO, "Failed to execute\n");
             exit(0);
         }
         else
         {
+
             int status;
-            wait(&status);
-            //waitpid(child_pid,1,0);
+            waitpid(child_pid, &status, 0);
+            printf("here aahhh\n");
+            dup2(fd[0], STDIN_FILENO);
+            close(fd[1]);
+            close(fd[0]);
         }
         
     }
+    close(fd[0]);
+    close(fd[1]);
+    
+    int output = open(args[DEST_FILE], O_CREAT | O_WRONLY | O_TRUNC, 0644);
+    if(output < 0) return;
+
+    dup2(output, STDOUT_FILENO);
+
+    char path[BUFF_SIZE] = "";
+    strcpy(path, execsPath);
+    strcat(path, "/");
+    strcat(path,args[i]);
+    execl(path, path, NULL);
+    //execlp("ls", "ls", NULL);
 }
 
 

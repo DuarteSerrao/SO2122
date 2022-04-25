@@ -59,17 +59,18 @@ int main(int argc, char** argv)
 	close(server);
 
     int input = open("tmp/pipServCli", O_RDONLY);
+    if(input < 0)
+    {
+        auxMessage = "Server couldn't open pipe :/\n";
+        write(STDERR_FILENO, auxMessage, strlen(auxMessage));
+        return 2;
+    }
     
-    bool listening = true;
-    while(listening)
+    int n = 0;
+    while((n = read(input, buff, BUFF_SIZE)) != -1)
     {        
-        int n = read(input, buff, BUFF_SIZE);
         buff[n] = '\0';
-        //enters if statement if it is not equal to "quit"
-        if((listening = strcmp(buff, "quit")))
-        {
-            write(STDOUT_FILENO, buff, n);
-        }
+        write(STDOUT_FILENO, buff, n);
     }
     close(input);
     return 0;
