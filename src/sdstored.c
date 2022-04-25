@@ -64,6 +64,7 @@ enum requestArgIndex
 
 //FUNCTIONS INDEX
 bool          checkOps    (char *args[], int *opsCounter);
+void          doRequest   (char **args, int client, char *execsPath);
 char**        parseArgs   (char *buff);
 bool          parseConfig (char *buffer);
 void          procFileFunc(char **args, char *execsPath);
@@ -102,84 +103,82 @@ int main(int argc, char **argv)
 
 
     //Making pipes
-    mkfifo("tmp/pipServCli", 0644);
+    mkfifo("tmp/pipCliServ", 0644);
+
+    int listener = open("tmp/pipCliServ", O_RDONLY);
+    if(listener < 0)
+    {
+        sendMessage(STDERR_FILENO, "Couldn't open pipe Client->Server.\n---------------------------------------\n");
+        return 2;
+    }
 
     sendMessage(STDOUT_FILENO, "Recieving pipe created...\nListening...\n---------------------------------------\n");
+
+    
+    int fd[2];
+    if(pipe(fd) == -1)
+    {
+        sendMessage(STDERR_FILENO, "pipe failed :/\n");
+        return 3;
+    }
+
 
     //Loop that will constantly listen for new requests
     while(1)
     {
-        
-        //Opening pipe [Client -> Server]
-        mkfifo("tmp/pipCliServ", 0644);
-        int input = open("tmp/pipCliServ", O_RDONLY);
-        if(input < 0)
+        pid_t pid = fork();
+
+        if(pid < 0)
         {
-            sendMessage(STDERR_FILENO, "Couldn't open pipe Client->Server.\n---------------------------------------\n");
-            return 2;
+            sendMessage(STDERR_FILENO, "Couldn't open fork\n");     
         }
-
-        char buff[BUFF_SIZE] = "";
-
-        //Getting the size of what was actually read
-        ssize_t n = read(input, buff, BUFF_SIZE);
-        buff[n] = '\0';
-        sendMessage(STDOUT_FILENO, "Request received from client\n");        
-
-        char **args = parseArgs(buff);
-
-        close(input);
-
-        //Opening pipe [Server -> Client]
-        int client = open("tmp/pipServCli", O_WRONLY);
-        if(client < 0)//In case we can't communicate back with client, we choose not to continue the request
+        else if (pid > 0) //Father
         {
-            sendMessage(STDERR_FILENO, "Couldn't open pipe Server->Client.\n");
-            continue;
-        }
+            close(fd[0]);
+            char buff[BUFF_SIZE] = "";
 
-        
-        if(!strcmp(args[TYPE], "proc-file"))
-        {
-            sendMessage(STDOUT_FILENO, "Request type: PROCESS FILE\n");
-            sendMessage(client, "Your request will be processed now\n");
-
-            int opsCounter[MAX_OPS];
-            if(!checkOps(args+ARGS, opsCounter))
-            {
-                sendMessage(client, "Full Capacity. Try again :)\n");
-                sendMessage(STDOUT_FILENO, "---------------------------------------\n");
-            }
-            else
-            {
-                for(int i = 0; i < MAX_OPS; i++) operations[i] += opsCounter[i];
-
-                //Since procFile will mess with STDIN and STDOUT
-                if(fork() == 0) procFileFunc(args, execsPath);
-
-                int status;
-                waitpid(0, &status, 0);
-
-                for(int i = 0; i < MAX_OPS; i++) operations[i] -= opsCounter[i];
-
-                sendMessage(STDOUT_FILENO, "Request processed\n---------------------------------------\n");
-                sendMessage(client, "Your request was processed\n");
-            }
-
+            //Getting the size of what was actually read
+            ssize_t n = read(listener, buff, BUFF_SIZE);
             
+            sendMessage(STDOUT_FILENO, "Request received from client\n"); 
+            write(fd[1], buff, n);
+            close(fd[1]);
+
         }
-        else if(!strcmp(args[TYPE], "status"))
+        else //Son
         {
-            sendMessage(STDOUT_FILENO, "Request type: STATUS\n---------------------------------------\n");
-            sendMessage(client, statusFunc ());
+            close(fd[1]);
+            //Opening pipe [Client -> Server]
+            mkfifo("tmp/pipServCli", 0644);
+
+            char buff[BUFF_SIZE] = "";
+            int n = read(fd[0], buff, BUFF_SIZE);
+            close(fd[0]);
+            buff[n] = '\0';
+
+            printf("%s\n", buff);
+
+
+            char **args = parseArgs(buff);
+
+            //Opening pipe [Server -> Client]
+            int client = open("tmp/pipServCli", O_WRONLY);
+            if(client < 0)//In case we can't communicate back with client, we choose not to continue the request
+            {
+                sendMessage(STDERR_FILENO, "Couldn't open pipe Server->Client.\n");
+                continue;
+            }
+
+            doRequest(args, client, execsPath);
+            close(client);
+            unlink("tmp/pipServCli");
+            exit(0);
         }
-        else 
-        {
-            sendMessage(STDOUT_FILENO, "Request type: ERROR\n---------------------------------------\n");
-            sendMessage(client, "Options available: 'proc_file' or 'status'\n");
-        }
-        close(client);
-        unlink("tmp/pipServCli");
+
+        int status;
+        waitpid(0, &status, 0);
+
+        
     }
   return 0;
 }
@@ -190,6 +189,54 @@ FUNCTION: Send message from a literal string to an output
 void sendMessage(int output, char *message)
 {
     write(output, message, strlen(message));
+}
+
+
+/*******************************************************************************
+FUNCTION:
+*******************************************************************************/
+void doRequest(char **args, int client, char *execsPath)
+{
+    if(!strcmp(args[TYPE], "proc-file"))
+    {
+        sendMessage(STDOUT_FILENO, "Request type: PROCESS FILE\n");
+        sendMessage(client, "Your request will be processed now\n");
+
+        int opsCounter[MAX_OPS];
+        if(!checkOps(args+ARGS, opsCounter))
+        {
+            sendMessage(client, "Full Capacity. Try again :)\n");
+            sendMessage(STDOUT_FILENO, "---------------------------------------\n");
+        }
+        else
+        {
+            for(int i = 0; i < MAX_OPS; i++) operations[i] += opsCounter[i];
+
+        //Since procFile will mess with STDIN and STDOUT
+        if(fork() == 0) procFileFunc(args, execsPath);
+
+        int status;
+        waitpid(0, &status, 0);
+
+        for(int i = 0; i < MAX_OPS; i++) operations[i] -= opsCounter[i];
+
+        sendMessage(STDOUT_FILENO, "Request processed\n---------------------------------------\n");
+        sendMessage(client, "Your request was processed\n");
+    }
+
+            
+    }
+    else if(!strcmp(args[TYPE], "status"))
+    {
+        sendMessage(STDOUT_FILENO, "Request type: STATUS\n---------------------------------------\n");
+        sendMessage(client, statusFunc ());
+    }
+    else 
+    {
+        sendMessage(STDOUT_FILENO, "Request type: ERROR\n---------------------------------------\n");
+        sendMessage(client, "Options available: 'proc_file' or 'status'\n");
+    }
+    
 }
 
 
