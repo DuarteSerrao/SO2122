@@ -109,6 +109,7 @@ int main(int argc, char **argv)
     //Loop that will constantly listen for new requests
     while(1)
     {
+        
         //Opening pipe [Client -> Server]
         mkfifo("tmp/pipCliServ", 0644);
         int input = open("tmp/pipCliServ", O_RDONLY);
@@ -276,12 +277,11 @@ void procFileFunc(char **args, char* execsPath)
 
             int status;
             waitpid(child_pid, &status, 0);
-            printf("here aahhh\n");
             dup2(fd[0], STDIN_FILENO);
             close(fd[1]);
             close(fd[0]);
         }
-        
+
     }
     close(fd[0]);
     close(fd[1]);
@@ -289,12 +289,14 @@ void procFileFunc(char **args, char* execsPath)
     int output = open(args[DEST_FILE], O_CREAT | O_WRONLY | O_TRUNC, 0644);
     if(output < 0) return;
 
-    dup2(output, STDOUT_FILENO);
+    
 
     char path[BUFF_SIZE] = "";
     strcpy(path, execsPath);
     strcat(path, "/");
     strcat(path,args[i]);
+
+    dup2(output, STDOUT_FILENO);
     execl(path, path, NULL);
     //execlp("ls", "ls", NULL);
 }
