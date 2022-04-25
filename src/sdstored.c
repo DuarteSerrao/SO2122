@@ -55,6 +55,7 @@ const static struct {
 
 enum requestArgIndex
 {
+    ID,
     TYPE,
     SRC_FILE,
     DEST_FILE,
@@ -97,31 +98,19 @@ int main(int argc, char **argv)
         return 1;
     }
 
-
-
     sendMessage(STDOUT_FILENO, "Server starting...\n");
-
 
     //Making pipes
     mkfifo("tmp/pipCliServ", 0644);
 
-    int listener = open("tmp/pipCliServ", O_RDONLY);
-    if(listener < 0)
-    {
-        sendMessage(STDERR_FILENO, "Couldn't open pipe Client->Server.\n---------------------------------------\n");
-        return 2;
-    }
-
     sendMessage(STDOUT_FILENO, "Recieving pipe created...\nListening...\n---------------------------------------\n");
 
-    
     int fd[2];
     if(pipe(fd) == -1)
     {
         sendMessage(STDERR_FILENO, "pipe failed :/\n");
         return 3;
     }
-
 
     //Loop that will constantly listen for new requests
     while(1)
@@ -134,35 +123,49 @@ int main(int argc, char **argv)
         }
         else if (pid > 0) //Father
         {
-            close(fd[0]);
+            //close(fd[0]);
             char buff[BUFF_SIZE] = "";
+            int listener = open("tmp/pipCliServ", O_RDONLY);
+
+            if(listener < 0)
+            {
+                sendMessage(STDERR_FILENO, "Couldn't open pipe Client->Server.\n---------------------------------------\n");
+                return 2;
+            }
 
             //Getting the size of what was actually read
             ssize_t n = read(listener, buff, BUFF_SIZE);
             
             sendMessage(STDOUT_FILENO, "Request received from client\n"); 
             write(fd[1], buff, n);
-            close(fd[1]);
-
+            close(listener);
         }
         else //Son
         {
             close(fd[1]);
             //Opening pipe [Client -> Server]
-            mkfifo("tmp/pipServCli", 0644);
-
+            
             char buff[BUFF_SIZE] = "";
             int n = read(fd[0], buff, BUFF_SIZE);
             close(fd[0]);
             buff[n] = '\0';
 
-            printf("%s\n", buff);
 
-
+            //printf("%s\n", buff);
             char **args = parseArgs(buff);
 
+            char fifo[15];
+            strcpy(fifo, "tmp/");
+            strcat(fifo, args[ID]);
+            strcat(fifo, "\0");
+
+            mkfifo(fifo, 0644);
+
             //Opening pipe [Server -> Client]
-            int client = open("tmp/pipServCli", O_WRONLY);
+            int client = open(fifo, O_WRONLY); //| O_NONBLOCK
+
+            printf("%s\n", fifo);
+
             if(client < 0)//In case we can't communicate back with client, we choose not to continue the request
             {
                 sendMessage(STDERR_FILENO, "Couldn't open pipe Server->Client.\n");
@@ -170,14 +173,13 @@ int main(int argc, char **argv)
             }
 
             doRequest(args, client, execsPath);
+
             close(client);
-            unlink("tmp/pipServCli");
+            unlink(fifo);
             exit(0);
         }
-
         int status;
         waitpid(0, &status, 0);
-
         
     }
   return 0;
@@ -222,9 +224,7 @@ void doRequest(char **args, int client, char *execsPath)
 
         sendMessage(STDOUT_FILENO, "Request processed\n---------------------------------------\n");
         sendMessage(client, "Your request was processed\n");
-    }
-
-            
+        }   
     }
     else if(!strcmp(args[TYPE], "status"))
     {
@@ -271,9 +271,8 @@ FUNCTION: Function for a 'status' request
 *******************************************************************************/
 char* statusFunc ()
 {
-    //code here :D
-    return "STATUS\n";
     
+    return "STATUS\n";
 }
 
 
@@ -296,10 +295,8 @@ void procFileFunc(char **args, char* execsPath)
     dup2(input, STDIN_FILENO);
     close(input);
 
-
     for(i = ARGS; args[i+1]!=NULL; i++)
     {
-        
         //Preparing command to send through the exec
         char path[BUFF_SIZE] = "";
         strcpy(path, execsPath);
@@ -310,7 +307,6 @@ void procFileFunc(char **args, char* execsPath)
         int child_pid = fork();
         if(child_pid == 0)
         {
-           
             dup2(fd[1], STDOUT_FILENO);
             close(fd[0]);
             close(fd[1]);
@@ -321,7 +317,6 @@ void procFileFunc(char **args, char* execsPath)
         }
         else
         {
-
             int status;
             waitpid(child_pid, &status, 0);
             dup2(fd[0], STDIN_FILENO);
@@ -335,8 +330,6 @@ void procFileFunc(char **args, char* execsPath)
     
     int output = open(args[DEST_FILE], O_CREAT | O_WRONLY | O_TRUNC, 0644);
     if(output < 0) return;
-
-    
 
     char path[BUFF_SIZE] = "";
     strcpy(path, execsPath);
@@ -358,7 +351,6 @@ char** parseArgs(char *buff)
     char *token = "";
     unsigned int numArgs = 0;
     token = strtok(buff," ");
-        //if(!strcmp())
 
     while (token != NULL)
     {

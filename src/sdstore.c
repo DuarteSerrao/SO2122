@@ -44,13 +44,22 @@ int main(int argc, char** argv)
         return 1;
     }
 
+
+    sprintf(buff, "%d", getpid());
+    char fifo[30];
+    strcpy(fifo, "tmp/");
+    strcat(fifo, buff);
+
+    argsSize += strlen(buff)+1;
+
     //Iterating through all arguments and concatenating them into a buffer
     //This way, we dont make a lot of system calls and send everything together
     for (int i = 1; i < argc; i++)
     {
         argsSize += strlen(argv[i])+1;
-        strcat(buff, argv[i]);
         strcat(buff," ");
+        strcat(buff, argv[i]);
+        
         
     }
 
@@ -58,13 +67,17 @@ int main(int argc, char** argv)
     write(server, buff, argsSize);
 	close(server);
 
-    int input = open("tmp/pipServCli", O_RDONLY);
-    if(input < 0)
-    {
-        auxMessage = "Server couldn't open pipe :/\n";
-        write(STDERR_FILENO, auxMessage, strlen(auxMessage));
-        return 2;
-    }
+    int input;
+    //for(int i=0; i<2000; i++)
+    //{
+    //    input = open(fifo, O_RDONLY);
+    //    if(input >= 0) break;
+    //    printf("%d ", i);
+    //}
+
+
+    while((input = open(fifo, O_RDONLY)) < 0); //SEBASTIÃO NÃO GOSTA :'( ;-;
+    
     
     bool listening = true;
     while(listening)
@@ -72,7 +85,7 @@ int main(int argc, char** argv)
         int n = read(input, buff, BUFF_SIZE);
         buff[n] = '\0';
         write(STDOUT_FILENO, buff, n);
-        if(access("tmp/pipServCli", F_OK) != 0) listening = false;
+        if(access(fifo, F_OK) != 0) listening = false;
     }
     close(input);
     return 0;
