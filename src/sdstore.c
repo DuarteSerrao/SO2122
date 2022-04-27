@@ -73,7 +73,9 @@ int main(int argc, char** argv)
     write(server, buff, argsSize);
 	close(server);
 
-    int fd = open(fifo, O_RDONLY);
+    mkfifo(fifo, 0644);
+
+    int fd = open(fifo, O_RDONLY | O_NOCTTY);
 
     // Initialize file descriptor sets
     fd_set read_fds, write_fds, except_fds;
@@ -84,30 +86,29 @@ int main(int argc, char** argv)
 
     // Set timeout to 1.0 seconds
     struct timeval timeout;
-    timeout.tv_sec = 1;
+    timeout.tv_sec = 3;
     timeout.tv_usec = 0;
 
-    if (select(fd + 1, &read_fds, &write_fds, &except_fds, &timeout) == 1)
+    if (select(fd + 1, &read_fds, &write_fds, &except_fds, &timeout) > 0)
     {
-        fd = open(fifo, O_RDONLY);
+        bool listening = true;
+        while(listening)
+        {       
+            int n = read(fd, buff, BUFF_SIZE);
+            buff[n] = '\0';
+            write(STDOUT_FILENO, buff, n);
+            if(access(fifo, F_OK) != 0) listening = false;
+        }
+        close(fd);
     }
     else    
     {
         auxMessage = "Connection to server not possible at the time.\n";
         write(STDERR_FILENO, auxMessage, strlen(auxMessage));
-        close(server);
+        close(fd);
+        unlink(fifo);
         return 1;
     }
     
-    
-    bool listening = true;
-    while(listening)
-    {       
-        int n = read(fd, buff, BUFF_SIZE);
-        buff[n] = '\0';
-        write(STDOUT_FILENO, buff, n);
-        if(access(fifo, F_OK) != 0) listening = false;
-    }
-    close(fd);
     return 0;
 }

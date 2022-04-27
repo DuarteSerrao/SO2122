@@ -159,7 +159,7 @@ int main(int argc, char **argv)
             strcat(fifo, args[ID]);
             strcat(fifo, "\0");
 
-            mkfifo(fifo, 0644);
+            
 
             //Opening pipe [Server -> Client]
             int client = open(fifo, O_WRONLY); //| O_NONBLOCK
@@ -176,10 +176,12 @@ int main(int argc, char **argv)
 
             close(client);
             unlink(fifo);
+            
             exit(0);
         }
         int status;
         waitpid(0, &status, 0);
+
         
     }
   return 0;
