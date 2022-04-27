@@ -20,8 +20,14 @@ DEVELOPERS: a83630, Duarte Serrão
 #define BUFF_SIZE 1024
 
 void terminate(int signum){
+
 	pid_t p = getpid();
-	kill(p, SIGQUIT);
+
+    char pidStr[BUFF_SIZE] = "";
+    sprintf(pidStr, "%d", getpid());
+    unlink(pidStr);
+	
+    kill(p, SIGQUIT);
 }
 
 int main(int argc, char** argv)
@@ -67,26 +73,41 @@ int main(int argc, char** argv)
     write(server, buff, argsSize);
 	close(server);
 
-    int input;
-    //for(int i=0; i<2000; i++)
-    //{
-    //    input = open(fifo, O_RDONLY);
-    //    if(input >= 0) break;
-    //    printf("%d ", i);
-    //}
+    int fd = open(fifo, O_RDONLY);
 
+    // Initialize file descriptor sets
+    fd_set read_fds, write_fds, except_fds;
+    FD_ZERO(&read_fds);
+    FD_ZERO(&write_fds);
+    FD_ZERO(&except_fds);
+    FD_SET(fd, &read_fds);
 
-    while((input = open(fifo, O_RDONLY)) < 0); //SEBASTIÃO NÃO GOSTA :'( ;-;
+    // Set timeout to 1.0 seconds
+    struct timeval timeout;
+    timeout.tv_sec = 1;
+    timeout.tv_usec = 0;
+
+    if (select(fd + 1, &read_fds, &write_fds, &except_fds, &timeout) == 1)
+    {
+        fd = open(fifo, O_RDONLY);
+    }
+    else    
+    {
+        auxMessage = "Connection to server not possible at the time.\n";
+        write(STDERR_FILENO, auxMessage, strlen(auxMessage));
+        close(server);
+        return 1;
+    }
     
     
     bool listening = true;
     while(listening)
     {       
-        int n = read(input, buff, BUFF_SIZE);
+        int n = read(fd, buff, BUFF_SIZE);
         buff[n] = '\0';
         write(STDOUT_FILENO, buff, n);
         if(access(fifo, F_OK) != 0) listening = false;
     }
-    close(input);
+    close(fd);
     return 0;
 }
