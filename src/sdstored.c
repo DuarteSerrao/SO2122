@@ -112,35 +112,39 @@ int main(int argc, char **argv)
         return 3;
     }
 
+    
+
     //Loop that will constantly listen for new requests
     while(1)
     {
+
+        char buff[BUFF_SIZE] = "";
+        
+        int listener = open("tmp/pipCliServ", O_RDONLY);
+        if(listener < 0)
+        {
+            sendMessage(STDERR_FILENO, "Couldn't open pipe Client->Server.\n---------------------------------------\n");
+            return 2;
+        }
+
+        //Getting the size of what was actually read
+        ssize_t n = read(listener, buff, BUFF_SIZE);
+            
+        sendMessage(STDOUT_FILENO, "Request received from client\n"); 
+        printf("%s\n", buff);
+
         pid_t pid = fork();
+
+        write(fd[1], buff, n);
+        buff[0] = '\0';
+        close(listener);
+
 
         if(pid < 0)
         {
-            sendMessage(STDERR_FILENO, "Couldn't open fork\n");     
+            sendMessage(STDERR_FILENO, "Couldn't open fork for my son\n");     
         }
-        else if (pid > 0) //Father
-        {
-            //close(fd[0]);
-            char buff[BUFF_SIZE] = "";
-            int listener = open("tmp/pipCliServ", O_RDONLY);
-
-            if(listener < 0)
-            {
-                sendMessage(STDERR_FILENO, "Couldn't open pipe Client->Server.\n---------------------------------------\n");
-                return 2;
-            }
-
-            //Getting the size of what was actually read
-            ssize_t n = read(listener, buff, BUFF_SIZE);
-            
-            sendMessage(STDOUT_FILENO, "Request received from client\n"); 
-            write(fd[1], buff, n);
-            close(listener);
-        }
-        else //Son
+        else if (pid == 0) //Son
         {
             close(fd[1]);
             //Opening pipe [Client -> Server]
@@ -179,10 +183,9 @@ int main(int argc, char **argv)
             
             exit(0);
         }
-        int status;
-        waitpid(0, &status, 0);
 
-        
+        //int status;
+        //waitpid(0, &status, 0);
     }
   return 0;
 }
@@ -312,8 +315,8 @@ void procFileFunc(char **args, char* execsPath)
             dup2(fd[1], STDOUT_FILENO);
             close(fd[0]);
             close(fd[1]);
+            sendMessage(STDOUT_FILENO, "here1\n");
             execl(path, path, NULL);
-            //execlp("ls", "ls", NULL);
             sendMessage(STDERR_FILENO, "Failed to execute\n");
             exit(0);
         }
@@ -324,11 +327,13 @@ void procFileFunc(char **args, char* execsPath)
             dup2(fd[0], STDIN_FILENO);
             close(fd[1]);
             close(fd[0]);
+            sendMessage(STDOUT_FILENO, "here2\n");
         }
 
     }
     close(fd[0]);
     close(fd[1]);
+    sendMessage(STDOUT_FILENO, "here3\n");
     
     int output = open(args[DEST_FILE], O_CREAT | O_WRONLY | O_TRUNC, 0644);
     if(output < 0) return;
@@ -340,7 +345,6 @@ void procFileFunc(char **args, char* execsPath)
 
     dup2(output, STDOUT_FILENO);
     execl(path, path, NULL);
-    //execlp("ls", "ls", NULL);
 }
 
 

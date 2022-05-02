@@ -40,16 +40,7 @@ int main(int argc, char** argv)
     char *auxMessage = "";
     int argsSize = 0;
 
-    //Opening [Client -> Server] pipe and verifying if the server is ready
-    int server = open("tmp/pipCliServ", O_WRONLY);
-    if (server < 0)
-    {
-        auxMessage = "Server offline\n";
-        write(STDERR_FILENO, auxMessage, strlen(auxMessage));
-		close(server);
-        return 1;
-    }
-
+    
 
     sprintf(buff, "%d", getpid());
     char fifo[30];
@@ -69,9 +60,31 @@ int main(int argc, char** argv)
         
     }
 
+    //Opening [Client -> Server] pipe and verifying if the server is ready
+    int server = open("tmp/pipCliServ", O_WRONLY | O_TRUNC);
+    if (server < 0)
+    {
+        auxMessage = "Server offline\n";
+        write(STDERR_FILENO, auxMessage, strlen(auxMessage));
+        close(server);
+        return 1;
+    }
+
+    struct flock  lock;
+    lock.l_type = F_WRLCK;
+    lock.l_whence = SEEK_END;
+    lock.l_start = 0;
+    lock.l_len = 0;
+
+    while(fcntl(server, F_SETLKW, &lock) == -1);
+    sleep(0.5);
+
     //sending them through the [Client -> Server] pipe and closing it afterwards
     write(server, buff, argsSize);
+    lock.l_type = F_UNLCK;
+    fcntl(server, F_SETLKW, &lock);
 	close(server);
+
 
     mkfifo(fifo, 0644);
 
@@ -83,6 +96,11 @@ int main(int argc, char** argv)
     FD_ZERO(&write_fds);
     FD_ZERO(&except_fds);
     FD_SET(fd, &read_fds);
+
+    auxMessage = "heeere\n";
+    write(STDIN_FILENO, auxMessage, strlen(auxMessage));
+
+
 
     // Set timeout to 1.0 seconds
     struct timeval timeout;
