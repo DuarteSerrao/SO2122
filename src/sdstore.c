@@ -70,6 +70,10 @@ int main(int argc, char** argv)
         return 1;
     }
 
+    mkfifo(fifo, 0644);
+
+    int fd = open(fifo, O_RDONLY | O_NOCTTY);
+
     struct flock  lock;
     lock.l_type = F_WRLCK;
     lock.l_whence = SEEK_END;
@@ -86,9 +90,7 @@ int main(int argc, char** argv)
 	close(server);
 
 
-    mkfifo(fifo, 0644);
-
-    int fd = open(fifo, O_RDONLY | O_NOCTTY);
+ 
 
     // Initialize file descriptor sets
     fd_set read_fds, write_fds, except_fds;

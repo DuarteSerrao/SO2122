@@ -315,7 +315,6 @@ void procFileFunc(char **args, char* execsPath)
             dup2(fd[1], STDOUT_FILENO);
             close(fd[0]);
             close(fd[1]);
-            sendMessage(STDOUT_FILENO, "here1\n");
             execl(path, path, NULL);
             sendMessage(STDERR_FILENO, "Failed to execute\n");
             exit(0);
@@ -344,6 +343,7 @@ void procFileFunc(char **args, char* execsPath)
     strcat(path,args[i]);
 
     dup2(output, STDOUT_FILENO);
+    close(output);
     execl(path, path, NULL);
 }
 
