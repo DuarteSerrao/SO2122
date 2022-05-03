@@ -297,11 +297,32 @@ void procFileFunc(char **args, char* execsPath)
     int input = open(args[SRC_FILE], O_RDONLY);
     if(input < 0) return;
 
+    int aux = dup(STDIN_FILENO);
+
     dup2(input, STDIN_FILENO);
+
+
     close(input);
 
-    for(i = ARGS; args[i+1]!=NULL; i++)
+    for(i = ARGS; args[i]!=NULL; i++)
     {
+        // Second iteration swaps input file for the original STDIN_FILENO
+        if(i == ARGS+1) 
+        {
+
+            dup2(aux,STDIN_FILENO);
+            close(aux);
+
+
+        }
+        if(args[i+1] == NULL)
+        {
+            int output = open(args[DEST_FILE], O_CREAT | O_WRONLY | O_TRUNC, 0644);
+            if(output < 0) return;
+            dup2(output,STDOUT_FILENO);
+            close(output);
+        }
+
         //Preparing command to send through the exec
         char path[BUFF_SIZE] = "";
         strcpy(path, execsPath);
@@ -323,7 +344,7 @@ void procFileFunc(char **args, char* execsPath)
         {
             int status;
             waitpid(child_pid, &status, 0);
-            dup2(fd[0], STDIN_FILENO);
+            dup2(fd[0], aux);
             close(fd[1]);
             close(fd[0]);
             sendMessage(STDOUT_FILENO, "here2\n");
@@ -333,18 +354,7 @@ void procFileFunc(char **args, char* execsPath)
     close(fd[0]);
     close(fd[1]);
     sendMessage(STDOUT_FILENO, "here3\n");
-    
-    int output = open(args[DEST_FILE], O_CREAT | O_WRONLY | O_TRUNC, 0644);
-    if(output < 0) return;
 
-    char path[BUFF_SIZE] = "";
-    strcpy(path, execsPath);
-    strcat(path, "/");
-    strcat(path,args[i]);
-
-    dup2(output, STDOUT_FILENO);
-    close(output);
-    execl(path, path, NULL);
 }
 
 

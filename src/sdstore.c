@@ -16,6 +16,7 @@ DEVELOPERS: a83630, Duarte Serrão
 #include <sys/stat.h>
 #include <sys/wait.h>
 #include <stdbool.h>
+#include <sys/time.h>
 
 #define BUFF_SIZE 1024
 
@@ -72,7 +73,6 @@ int main(int argc, char** argv)
 
     mkfifo(fifo, 0644);
 
-    int fd = open(fifo, O_RDONLY | O_NOCTTY);
 
     struct flock  lock;
     lock.l_type = F_WRLCK;
@@ -80,8 +80,11 @@ int main(int argc, char** argv)
     lock.l_start = 0;
     lock.l_len = 0;
 
+    
+
     while(fcntl(server, F_SETLKW, &lock) == -1);
     sleep(0.5);
+
 
     //sending them through the [Client -> Server] pipe and closing it afterwards
     write(server, buff, argsSize);
@@ -89,8 +92,9 @@ int main(int argc, char** argv)
     fcntl(server, F_SETLKW, &lock);
 	close(server);
 
-
+    int fd = open(fifo, O_RDONLY | O_NOCTTY);
  
+
 
     // Initialize file descriptor sets
     fd_set read_fds, write_fds, except_fds;
@@ -109,7 +113,11 @@ int main(int argc, char** argv)
     timeout.tv_sec = 3;
     timeout.tv_usec = 0;
 
-    if (select(fd + 1, &read_fds, &write_fds, &except_fds, &timeout) > 0)
+
+    int p =select(fd +1, &read_fds, &write_fds, &except_fds, &timeout) > 0;
+    printf("%d\n",p );
+
+    if (p > 0)
     {
         bool listening = true;
         while(listening)
