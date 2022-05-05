@@ -74,26 +74,13 @@ int main(int argc, char** argv)
     mkfifo(fifo, 0644);
 
 
-    struct flock  lock;
-    lock.l_type = F_WRLCK;
-    lock.l_whence = SEEK_END;
-    lock.l_start = 0;
-    lock.l_len = 0;
-
-    
-
-    while(fcntl(server, F_SETLKW, &lock) == -1);
-    sleep(0.5);
-
-
     //sending them through the [Client -> Server] pipe and closing it afterwards
     write(server, buff, argsSize);
-    lock.l_type = F_UNLCK;
-    fcntl(server, F_SETLKW, &lock);
+
 	close(server);
 
-    int fd = open(fifo, O_RDONLY | O_NOCTTY);
- 
+    int fd = open(fifo, O_RDONLY | O_NONBLOCK);
+
 
 
     // Initialize file descriptor sets
@@ -114,7 +101,7 @@ int main(int argc, char** argv)
     timeout.tv_usec = 0;
 
 
-    int p =select(fd +1, &read_fds, &write_fds, &except_fds, &timeout) > 0;
+    int p = select(fd +1, &read_fds, &write_fds, &except_fds, &timeout);
     printf("%d\n",p );
 
     if (p > 0)

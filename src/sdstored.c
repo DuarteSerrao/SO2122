@@ -105,18 +105,19 @@ int main(int argc, char **argv)
 
     sendMessage(STDOUT_FILENO, "Recieving pipe created...\nListening...\n---------------------------------------\n");
 
-    int fd[2];
-    if(pipe(fd) == -1)
-    {
-        sendMessage(STDERR_FILENO, "pipe failed :/\n");
-        return 3;
-    }
+    
 
     
 
     //Loop that will constantly listen for new requests
     while(1)
     {
+        int fd[2];
+        if(pipe(fd) == -1)
+        {
+            sendMessage(STDERR_FILENO, "pipe failed :/\n");
+            return 3;
+        }
 
         char buff[BUFF_SIZE] = "";
         
@@ -128,17 +129,12 @@ int main(int argc, char **argv)
         }
 
         //Getting the size of what was actually read
-        ssize_t n = read(listener, buff, BUFF_SIZE);
+        ssize_t n = read (listener, buff, BUFF_SIZE);
             
         sendMessage(STDOUT_FILENO, "Request received from client\n"); 
         printf("%s\n", buff);
 
         pid_t pid = fork();
-
-        write(fd[1], buff, n);
-        buff[0] = '\0';
-        close(listener);
-
 
         if(pid < 0)
         {
@@ -147,13 +143,14 @@ int main(int argc, char **argv)
         else if (pid == 0) //Son
         {
             close(fd[1]);
+
             //Opening pipe [Client -> Server]
             
             char buff[BUFF_SIZE] = "";
             int n = read(fd[0], buff, BUFF_SIZE);
-            close(fd[0]);
             buff[n] = '\0';
 
+            close(fd[0]);
 
             //printf("%s\n", buff);
             char **args = parseArgs(buff);
@@ -183,9 +180,20 @@ int main(int argc, char **argv)
             
             exit(0);
         }
+        else //FATHER
+        {
+            close(fd[0]);
 
-        //int status;
-        //waitpid(0, &status, 0);
+            write(fd[1], buff, n);
+            buff[0] = '\0';
+
+            close(fd[1]);
+            close(listener);
+
+            //int status;
+            //waitpid(0, &status, 0);
+        }
+        
     }
   return 0;
 }
@@ -220,10 +228,8 @@ void doRequest(char **args, int client, char *execsPath)
             for(int i = 0; i < MAX_OPS; i++) operations[i] += opsCounter[i];
 
         //Since procFile will mess with STDIN and STDOUT
-        if(fork() == 0) procFileFunc(args, execsPath);
+        procFileFunc(args, execsPath);
 
-        int status;
-        waitpid(0, &status, 0);
 
         for(int i = 0; i < MAX_OPS; i++) operations[i] -= opsCounter[i];
 
@@ -297,7 +303,9 @@ void procFileFunc(char **args, char* execsPath)
     int input = open(args[SRC_FILE], O_RDONLY);
     if(input < 0) return;
 
-    int aux = dup(STDIN_FILENO);
+    const int auxIN  = dup(STDIN_FILENO);
+    int aux    = dup(STDIN_FILENO);
+    const int auxOUT = dup(STDOUT_FILENO);
 
     dup2(input, STDIN_FILENO);
 
@@ -306,20 +314,18 @@ void procFileFunc(char **args, char* execsPath)
 
     for(i = ARGS; args[i]!=NULL; i++)
     {
+
         // Second iteration swaps input file for the original STDIN_FILENO
-        if(i == ARGS+1) 
+        if(i == ARGS + 1) 
         {
-
-            dup2(aux,STDIN_FILENO);
-            close(aux);
-
-
+            dup2(auxIN,STDIN_FILENO);
+            close(auxIN);
         }
         if(args[i+1] == NULL)
         {
             int output = open(args[DEST_FILE], O_CREAT | O_WRONLY | O_TRUNC, 0644);
             if(output < 0) return;
-            dup2(output,STDOUT_FILENO);
+            dup2(output, STDOUT_FILENO);
             close(output);
         }
 
@@ -333,12 +339,19 @@ void procFileFunc(char **args, char* execsPath)
         int child_pid = fork();
         if(child_pid == 0)
         {
+
             dup2(fd[1], STDOUT_FILENO);
             close(fd[0]);
             close(fd[1]);
+            write(STDERR_FILENO, path, 123);
             execl(path, path, NULL);
             sendMessage(STDERR_FILENO, "Failed to execute\n");
             exit(0);
+        }
+        else if(child_pid == -1)
+        {
+            sendMessage(STDERR_FILENO, "Failed to create fork()\n");
+            return;
         }
         else
         {
@@ -347,12 +360,18 @@ void procFileFunc(char **args, char* execsPath)
             dup2(fd[0], aux);
             close(fd[1]);
             close(fd[0]);
-            sendMessage(STDOUT_FILENO, "here2\n");
         }
 
     }
     close(fd[0]);
     close(fd[1]);
+    if (i == ARGS)
+    {
+        dup2(auxIN,  STDIN_FILENO);
+        close(auxIN);
+    }
+    dup2(auxOUT, STDOUT_FILENO);
+    close(auxOUT);
     sendMessage(STDOUT_FILENO, "here3\n");
 
 }
@@ -379,6 +398,7 @@ char** parseArgs(char *buff)
         args[numArgs - 1] = malloc(strlen(token) + 1); /* The +1 for length is for the terminating '\0' character */
         snprintf(args[numArgs - 1], strlen(token) + 1, "%s", token);// O DUARTE NAO GOSTA
         token = strtok(NULL, " ");
+
     }
 
     // Store the last NULL pointer
