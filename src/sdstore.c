@@ -57,8 +57,6 @@ int main(int argc, char** argv)
         argsSize += strlen(argv[i])+1;
         strcat(buff," ");
         strcat(buff, argv[i]);
-        
-        
     }
 
     //Opening [Client -> Server] pipe and verifying if the server is ready

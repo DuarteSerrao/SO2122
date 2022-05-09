@@ -325,12 +325,10 @@ bool procFileFunc(char **args, char* execsPath)
             }
             dup2(output, STDOUT_FILENO);
             close(output);
-            sendMessage(STDERR_FILENO, "heeere1/\n");
         }
         //Creating new pipe with STDOUT as the output
         else
         {
-            sendMessage(STDERR_FILENO, "heeere2/\n");
             pipes = realloc(pipes, (j + 1)*sizeof(*pipes));
             pipes[j] = malloc(2*sizeof(int));
 
@@ -369,8 +367,9 @@ bool procFileFunc(char **args, char* execsPath)
             break;
         //MOTHER
         default:
-            if(args[i+1] == NULL) 
+            if(args[i+1] != NULL) 
             {
+                sendMessage(STDERR_FILENO, "heeere1/\n");
                 dup2(pipes[j][PIPE_IN], STDIN_FILENO);    
                 close(pipes[j][PIPE_IN]);
             }    
@@ -383,6 +382,9 @@ bool procFileFunc(char **args, char* execsPath)
         
         
     }
+
+    free(pipes);
+
     dup2(dupIN,  STDIN_FILENO);
     close(dupIN);
 
