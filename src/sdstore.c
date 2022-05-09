@@ -17,7 +17,6 @@ DEVELOPERS: a83630, Duarte Serrão
 #include <sys/wait.h>
 #include <stdbool.h>
 #include <sys/time.h>
-#include <time.h>
 
 #define BUFF_SIZE 1024
 
@@ -34,7 +33,6 @@ void terminate(int signum){
 
 int main(int argc, char** argv)
 {
-
     srand(time(NULL));   // Initialization, should only be called once.
     int randomnumber;
     randomnumber = rand() % 10 + 1;    // Returns a pseudo-random integer between 0 and RAND_MAX.
@@ -105,7 +103,7 @@ int main(int argc, char** argv)
     {   
          // Set timeout to 1.0 seconds
         struct timeval timeout;
-        timeout.tv_sec = 1;
+        timeout.tv_sec = 3;
         timeout.tv_usec = 0;
         
         int p = select(fd +1, &read_fds, &write_fds, &except_fds, &timeout);

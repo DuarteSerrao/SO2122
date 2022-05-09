@@ -29,6 +29,7 @@ DEVELOPERS: a83630, Duarte Serrão
 int maxOperations[MAX_OPS];
 int operations[MAX_OPS];
 
+
 typedef enum
 {
   NOP,
@@ -220,23 +221,33 @@ void doRequest(char **args, int client, char *execsPath)
         sendMessage(client, "Your request will be processed now\n");
 
         int opsCounter[MAX_OPS];
-        if(!checkOps(args+ARGS, opsCounter))
+        switch(checkOps(args+ARGS, opsCounter))
         {
+        // It's impossible to ever do this request
+        case -1:
             sendMessage(client, "Full Capacity. Try again :)\n");
             sendMessage(STDOUT_FILENO, "---------------------------------------\n");
+            break;
+        //It's possible, but not RIGHT NOW
+        case 0:
+            //Wait here for signal, i guess
+            //No break, since we want to do the rest too
+        default:
+            for(int i = 0; i < MAX_OPS; i++) operations[i] += opsCounter[i];
+
+            //Since procFile will mess with STDIN and STDOUT
+            procFileFunc(args, execsPath);
+
+
+            for(int i = 0; i < MAX_OPS; i++) operations[i] -= opsCounter[i];
+
+            sendMessage(STDOUT_FILENO, "Request processed\n---------------------------------------\n");
+            sendMessage(client, "Your request was processed\n");
+            break;
         }
         else
         {
-            for(int i = 0; i < MAX_OPS; i++) operations[i] += opsCounter[i];
-
-        //Since procFile will mess with STDIN and STDOUT
-        procFileFunc(args, execsPath);
-
-
-        for(int i = 0; i < MAX_OPS; i++) operations[i] -= opsCounter[i];
-
-        sendMessage(STDOUT_FILENO, "Request processed\n---------------------------------------\n");
-        sendMessage(client, "Your request was processed\n");
+            
         }   
     }
     else if(!strcmp(args[TYPE], "status"))
@@ -256,25 +267,31 @@ void doRequest(char **args, int client, char *execsPath)
 /*******************************************************************************
 FUNCTION: 
 *******************************************************************************/
-bool checkOps(char *args[], int *opsCounter)
+int checkOps(char *args[], int *opsCounter)
 {
+    int retVal = 1;
 
-    for(int i = 0; i < MAX_OPS; i++) opsCounter[i] = operations[i];
+    //
+    for(int i = 0; i < MAX_OPS; i++) opsCounter[i] = 0;
 
+    //
     for(int i = 0; args[i] != NULL; i++)
     {
         operationType type = strToOpType(args[i]);
         opsCounter[type]++;
-    }
 
-    for(int i = 0; i<MAX_OPS; i++) 
         if(opsCounter[i] > maxOperations[i])
         {
             opsCounter = NULL;
-            return false;
+            return -1;
         }
-
-    return true;
+        if((operations[i] + opsCounter[i]) > maxOperations[i])
+        {
+            retVal = 0;
+        }
+    }
+        
+    return retVal;
 }
 
 
@@ -379,8 +396,6 @@ bool procFileFunc(char **args, char* execsPath)
             waitpid(pid, &status, 0);
             break;
         }
-        
-        
     }
 
     free(pipes);
