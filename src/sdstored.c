@@ -67,7 +67,7 @@ enum requestArgIndex
 
 
 //FUNCTIONS INDEX
-bool          checkOps    (char *args[], int *opsCounter);
+int          checkOps    (char *args[], int *opsCounter);
 void          doRequest   (char **args, int client, char *execsPath);
 char**        parseArgs   (char *buff);
 bool          parseConfig (char *buffer);
@@ -245,10 +245,6 @@ void doRequest(char **args, int client, char *execsPath)
             sendMessage(client, "Your request was processed\n");
             break;
         }
-        else
-        {
-            
-        }   
     }
     else if(!strcmp(args[TYPE], "status"))
     {

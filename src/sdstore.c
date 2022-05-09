@@ -17,6 +17,7 @@ DEVELOPERS: a83630, Duarte Serrão
 #include <sys/wait.h>
 #include <stdbool.h>
 #include <sys/time.h>
+#include <time.h>
 
 #define BUFF_SIZE 1024
 
@@ -33,6 +34,14 @@ void terminate(int signum){
 
 int main(int argc, char** argv)
 {
+    //Peço desculpa, Moura :(
+    if(fork() == 0)
+    {
+        exit(0);
+    }
+    int status;
+    waitpid(0, &status, 0);
+
     srand(time(NULL));   // Initialization, should only be called once.
     int randomnumber;
     randomnumber = rand() % 10 + 1;    // Returns a pseudo-random integer between 0 and RAND_MAX.
