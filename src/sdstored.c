@@ -369,8 +369,12 @@ bool procFileFunc(char **args, char* execsPath)
             break;
         //MOTHER
         default:
-            dup2(pipes[j][PIPE_IN], STDIN_FILENO);
-            close(pipes[j][PIPE_IN]);
+            if(args[i+1] == NULL) 
+            {
+                dup2(pipes[j][PIPE_IN], STDIN_FILENO);    
+                close(pipes[j][PIPE_IN]);
+            }    
+            
             //Waiting for exec to complete
             int status;
             waitpid(pid, &status, 0);
