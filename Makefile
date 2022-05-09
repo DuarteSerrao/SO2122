@@ -23,7 +23,7 @@ test:
 	#xfce4-terminal -e bin/sdstored
 	#xfce4-terminal -e bin/sdstore
 testServ: 
-	./bin/sdstored config.txt ./bin/sdstore-transformations/
+	./bin/sdstored config.txt bin/sdstore-transformations/
 
 testCli:
 	./bin/sdstore proc-file teste.txt teste1 nop

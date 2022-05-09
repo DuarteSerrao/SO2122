@@ -21,6 +21,8 @@ DEVELOPERS: a83630, Duarte Serrão
 #define MAX_ARGS  20
 #define ARG_SIZE  20
 #define MAX_OPS   7
+#define PIPE_IN   0
+#define PIPE_OUT  1
 
 
 //NEW TYPES
@@ -68,7 +70,7 @@ bool          checkOps    (char *args[], int *opsCounter);
 void          doRequest   (char **args, int client, char *execsPath);
 char**        parseArgs   (char *buff);
 bool          parseConfig (char *buffer);
-void          procFileFunc(char **args, char *execsPath);
+bool          procFileFunc(char **args, char *execsPath);
 void          sendMessage (int output, char *message);
 bool          startUp     (char *configFile, char *execsPath);
 char*         statusFunc  ();
@@ -290,91 +292,102 @@ char* statusFunc ()
 /*******************************************************************************
 FUNCTION: Function for a 'process file' request
 *******************************************************************************/
-void procFileFunc(char **args, char* execsPath)
+bool procFileFunc(char **args, char* execsPath)
 {    
-    int i = ARGS;
-    int fd[2];
-    if(pipe(fd) == -1)
-    {
-        sendMessage(STDERR_FILENO, "pipe failed :/\n");
-        return;
-    }
-
+    bool retVal = true;
+    int **pipes = NULL; //We need n-1 pipes
+    
     int input = open(args[SRC_FILE], O_RDONLY);
-    if(input < 0) return;
+    if(input < 0) return false;
 
-    const int auxIN  = dup(STDIN_FILENO);
-    int aux    = dup(STDIN_FILENO);
-    const int auxOUT = dup(STDOUT_FILENO);
+    //Saving copies of the original std I/O
+    const int dupIN  = dup(STDIN_FILENO);
+    const int dupOUT = dup(STDOUT_FILENO);
 
+    //Starting comands with the input from file
     dup2(input, STDIN_FILENO);
-
-
     close(input);
 
-    for(i = ARGS; args[i]!=NULL; i++)
-    {
 
-        // Second iteration swaps input file for the original STDIN_FILENO
-        if(i == ARGS + 1) 
-        {
-            dup2(auxIN,STDIN_FILENO);
-            close(auxIN);
-        }
-        if(args[i+1] == NULL)
+    for(int i = ARGS; args[i]!=NULL && retVal; i++)
+    {
+        int j = i-ARGS;
+
+        // Last iteration must write on file and it wont create a new pipe
+        if(args[i+1] == NULL) 
         {
             int output = open(args[DEST_FILE], O_CREAT | O_WRONLY | O_TRUNC, 0644);
-            if(output < 0) return;
+            if(output < 0)
+            {
+                sendMessage(STDERR_FILENO, "Couldn't open output file.\n");
+                retVal = false;
+                break;
+            }
             dup2(output, STDOUT_FILENO);
             close(output);
+            sendMessage(STDERR_FILENO, "heeere1/\n");
         }
+        //Creating new pipe with STDOUT as the output
+        else
+        {
+            sendMessage(STDERR_FILENO, "heeere2/\n");
+            pipes = realloc(pipes, (j + 1)*sizeof(*pipes));
+            pipes[j] = malloc(2*sizeof(int));
+
+            if(pipe(pipes[j]) == -1)
+            {
+                sendMessage(STDERR_FILENO, "pipe failed :/\n");
+                retVal = false;
+                break;
+            }
+            dup2(pipes[j][PIPE_OUT], STDOUT_FILENO);
+            close(pipes[j][PIPE_OUT]);
+        }
+
 
         //Preparing command to send through the exec
         char path[BUFF_SIZE] = "";
         strcpy(path, execsPath);
-        strcat(path, "/");
         strcat(path,args[i]);
 
-        //Since exec will substitute this process if successful, we need to encase it in an new process
-        int child_pid = fork();
-        if(child_pid == 0)
-        {
 
-            dup2(fd[1], STDOUT_FILENO);
-            close(fd[0]);
-            close(fd[1]);
-            write(STDERR_FILENO, path, 123);
+        int pid = fork();
+
+        switch(pid)
+        {
+        //A FAILED CHILD
+        case -1:
+            sendMessage(STDERR_FILENO, "Failed to create fork()\n");
+            retVal = false;
+            break;
+        //DAUGHTER
+        case 0:
+            //close(pipes[j][PIPE_IN]);
             execl(path, path, NULL);
             sendMessage(STDERR_FILENO, "Failed to execute\n");
             exit(0);
-        }
-        else if(child_pid == -1)
-        {
-            sendMessage(STDERR_FILENO, "Failed to create fork()\n");
-            return;
-        }
-        else
-        {
+            break;
+        //MOTHER
+        default:
+            dup2(pipes[j][PIPE_IN], STDIN_FILENO);
+            close(pipes[j][PIPE_IN]);
+            //Waiting for exec to complete
             int status;
-            waitpid(child_pid, &status, 0);
-            dup2(fd[0], aux);
-            close(fd[1]);
-            close(fd[0]);
+            waitpid(pid, &status, 0);
+            break;
         }
-
+        
+        
     }
-    close(fd[0]);
-    close(fd[1]);
-    if (i == ARGS)
-    {
-        dup2(auxIN,  STDIN_FILENO);
-        close(auxIN);
-    }
-    dup2(auxOUT, STDOUT_FILENO);
-    close(auxOUT);
-    sendMessage(STDOUT_FILENO, "here3\n");
+    dup2(dupIN,  STDIN_FILENO);
+    close(dupIN);
 
+    dup2(dupOUT, STDOUT_FILENO);
+    close(dupOUT);
+
+    return retVal;
 }
+
 
 
 /*******************************************************************************

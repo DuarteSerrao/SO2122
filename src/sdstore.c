@@ -83,6 +83,8 @@ int main(int argc, char** argv)
 
 
 
+    //SETTING TIMEOUT
+
     // Initialize file descriptor sets
     fd_set read_fds, write_fds, except_fds;
     FD_ZERO(&read_fds);
@@ -90,40 +92,36 @@ int main(int argc, char** argv)
     FD_ZERO(&except_fds);
     FD_SET(fd, &read_fds);
 
-    auxMessage = "heeere\n";
-    write(STDIN_FILENO, auxMessage, strlen(auxMessage));
+   
 
-
-
-    // Set timeout to 1.0 seconds
-    struct timeval timeout;
-    timeout.tv_sec = 3;
-    timeout.tv_usec = 0;
-
-
-    int p = select(fd +1, &read_fds, &write_fds, &except_fds, &timeout);
-    printf("%d\n",p );
-
-    if (p > 0)
-    {
-        bool listening = true;
-        while(listening)
-        {       
+    
+    bool listening = true;
+    while(listening)
+    {   
+         // Set timeout to 1.0 seconds
+        struct timeval timeout;
+        timeout.tv_sec = 3;
+        timeout.tv_usec = 0;
+        
+        int p = select(fd +1, &read_fds, &write_fds, &except_fds, &timeout);
+        if (p > 0)
+        {
             int n = read(fd, buff, BUFF_SIZE);
             buff[n] = '\0';
             write(STDOUT_FILENO, buff, n);
             if(access(fifo, F_OK) != 0) listening = false;
         }
-        close(fd);
+        else
+        {
+            auxMessage = "Connection to server not possible at the time.\n";
+            write(STDERR_FILENO, auxMessage, strlen(auxMessage));
+            close(fd);
+            unlink(fifo);
+            return 1;
+        }
     }
-    else    
-    {
-        auxMessage = "Connection to server not possible at the time.\n";
-        write(STDERR_FILENO, auxMessage, strlen(auxMessage));
-        close(fd);
-        unlink(fifo);
-        return 1;
-    }
+
+    close(fd);
     
     return 0;
 }
