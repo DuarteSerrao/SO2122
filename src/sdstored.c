@@ -15,6 +15,7 @@ DEVELOPERS: a83630, Duarte Serrão
 #include <string.h>
 #include <stdlib.h>
 #include <stdbool.h>
+#include <signal.h>
 
 //COMMON VALUES
 #define BUFF_SIZE 1024
@@ -25,9 +26,23 @@ DEVELOPERS: a83630, Duarte Serrão
 #define PIPE_OUT  1
 
 
+enum customSignals
+{
+    SIG_FREE,  //Any process that ends sends this to FATHER
+    SIG_SUCC,  //Request will be processed
+    SIG_UNSUCC //Request will be in queue
+};
+
+
+
+
+
 //NEW TYPES
 int maxOperations[MAX_OPS];
 int operations[MAX_OPS];
+
+pid_t *queue;
+int queueSize;
 
 
 typedef enum
@@ -67,14 +82,18 @@ enum requestArgIndex
 
 
 //FUNCTIONS INDEX
-int          checkOps    (char *args[], int *opsCounter);
-void          doRequest   (char **args, int client, char *execsPath);
+int           checkOps    (char *args[], int *opsCounter);
+pid_t         getFirstElem();
+void          gradChild   (int sig);
+void          doRequest(char **args, int client, char *execsPath, pid_t ourFather);
+void          freeChild   (int sig);
 char**        parseArgs   (char *buff);
 bool          parseConfig (char *buffer);
 bool          procFileFunc(char **args, char *execsPath);
+void          putElem(pid_t pid);
 void          sendMessage (int output, char *message);
 bool          startUp     (char *configFile, char *execsPath);
-char*         statusFunc  ();
+void          statusFunc (char *message);
 operationType strToOpType (const char *str);
 void          terminate   (int signum);
 bool          testPath    (char *path);
@@ -86,8 +105,15 @@ FUNCTION: Main function that will control the whole flow of the server
 *******************************************************************************/
 int main(int argc, char **argv)
 {
+    queue = NULL;
+    queueSize = 0;
+
+    pid_t ourFather = getpid();
+
     signal(SIGINT, terminate);
     signal(SIGTERM, terminate);
+    signal(SIGUSR1, freeChild);
+    signal(SIGUSR2, gradChild);
 
     //We need to get absolute path for execv
     char *execsPath = malloc((strlen(getenv("PWD")) + strlen(argv[2]) + 2) * sizeof(char));
@@ -108,9 +134,6 @@ int main(int argc, char **argv)
 
     sendMessage(STDOUT_FILENO, "Recieving pipe created...\nListening...\n---------------------------------------\n");
 
-    
-
-    
 
     //Loop that will constantly listen for new requests
     while(1)
@@ -135,7 +158,8 @@ int main(int argc, char **argv)
         ssize_t n = read (listener, buff, BUFF_SIZE);
             
         sendMessage(STDOUT_FILENO, "Request received from client\n"); 
-        printf("%s\n", buff);
+
+
 
         pid_t pid = fork();
 
@@ -176,10 +200,12 @@ int main(int argc, char **argv)
                 continue;
             }
 
-            doRequest(args, client, execsPath);
+            doRequest(args, client, execsPath, ourFather);
 
             close(client);
             unlink(fifo);
+
+            kill(ourFather, SIGUSR1);
             
             exit(0);
         }
@@ -213,7 +239,7 @@ void sendMessage(int output, char *message)
 /*******************************************************************************
 FUNCTION:
 *******************************************************************************/
-void doRequest(char **args, int client, char *execsPath)
+void doRequest(char **args, int client, char *execsPath, pid_t ourFather)
 {
     if(!strcmp(args[TYPE], "proc-file"))
     {
@@ -221,6 +247,8 @@ void doRequest(char **args, int client, char *execsPath)
         sendMessage(client, "Your request will be processed now\n");
 
         int opsCounter[MAX_OPS];
+        pid_t imAChild = getpid();
+
         switch(checkOps(args+ARGS, opsCounter))
         {
         // It's impossible to ever do this request
@@ -230,8 +258,14 @@ void doRequest(char **args, int client, char *execsPath)
             break;
         //It's possible, but not RIGHT NOW
         case 0:
-            //Wait here for signal, i guess
-            //No break, since we want to do the rest too
+            putElem(imAChild);
+
+            sendMessage(STDERR_FILENO, "I failed :(\n");
+
+            do{  kill(imAChild, SIGSTOP);  } while(!checkOps(args+ARGS, opsCounter));
+
+            kill(ourFather, SIGUSR2); //we can continue
+
         default:
             for(int i = 0; i < MAX_OPS; i++) operations[i] += opsCounter[i];
 
@@ -249,7 +283,9 @@ void doRequest(char **args, int client, char *execsPath)
     else if(!strcmp(args[TYPE], "status"))
     {
         sendMessage(STDOUT_FILENO, "Request type: STATUS\n---------------------------------------\n");
-        sendMessage(client, statusFunc ());
+        char message[BUFF_SIZE];
+        statusFunc (message);
+        sendMessage(client, message);
     }
     else 
     {
@@ -295,10 +331,21 @@ int checkOps(char *args[], int *opsCounter)
 /*******************************************************************************
 FUNCTION: Function for a 'status' request
 *******************************************************************************/
-char* statusFunc ()
+void statusFunc (char *message)
 {
-    
-    return "STATUS\n";
+    char aux[3];
+    for(int i = 0; i < MAX_OPS; i++)
+    {
+        strcat(message, "transf ");
+        strcat(message, conversion[i].str);
+        strcat(message, ": ");
+        sprintf(aux, "%d", operations[i]);
+        strcat(message, aux);
+        strcat(message, "/");
+        sprintf(aux, "%d", maxOperations[i]);
+        strcat(message, aux);
+        strcat(message, " (running/max)\n");
+    }
 }
 
 
@@ -382,7 +429,6 @@ bool procFileFunc(char **args, char* execsPath)
         default:
             if(args[i+1] != NULL) 
             {
-                sendMessage(STDERR_FILENO, "heeere1/\n");
                 dup2(pipes[j][PIPE_IN], STDIN_FILENO);    
                 close(pipes[j][PIPE_IN]);
             }    
@@ -448,6 +494,7 @@ void terminate(int signum)
     unlink("tmp/pipCliServ");
     pid_t p = getpid();
     kill(p, SIGQUIT);
+    free(queue);
 }
 
 
@@ -523,4 +570,49 @@ bool startUp(char *configFile, char *execsPath)
     else return false; 
 
     return testPath(execsPath);
+}
+
+
+
+
+/*******************************************************************************
+FUNCTION: 
+*******************************************************************************/
+pid_t getFirstElem()
+{
+    if (queue == NULL) return -1;
+
+    pid_t pid = queue[0];
+
+    queue = &queue[1];
+    queue = realloc(queue, sizeof(queue)-sizeof(pid_t));
+
+    return pid;
+}
+
+/*******************************************************************************
+FUNCTION: 
+*******************************************************************************/
+void putElem(pid_t pid)
+{
+    queueSize++;
+
+    queue = realloc(queue, queueSize*sizeof(pid_t));
+
+    queue[queueSize-1] = pid;
+}
+
+
+void freeChild(int sig)
+{
+    if(queue != NULL) kill(queue[0], SIGCONT);
+    sendMessage(STDERR_FILENO, "IM FREEEEEEE\n");
+    //exit(sig);
+}
+
+void gradChild(int sig)
+{
+    getFirstElem();
+    kill(queue[0], SIGCONT);
+    //exit(sig);
 }
