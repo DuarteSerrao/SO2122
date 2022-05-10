@@ -85,7 +85,7 @@ enum requestArgIndex
 int           checkOps    (char *args[], int *opsCounter);
 pid_t         getFirstElem();
 void          gradChild   (int sig);
-void          doRequest(char **args, int client, char *execsPath, pid_t ourFather);
+void          doRequest(char **args, int client, char *execsPath, pid_t ourFather, int fdOperations);
 void          freeChild   (int sig);
 char**        parseArgs   (char *buff);
 bool          parseConfig (char *buffer);
@@ -134,6 +134,42 @@ int main(int argc, char **argv)
 
     sendMessage(STDOUT_FILENO, "Recieving pipe created...\nListening...\n---------------------------------------\n");
 
+    int fdOperations[2];
+    char readbuffer[BUFF_SIZE];
+
+    if(pipe(fdOperations) == -1){
+        return 3; //error
+    }
+
+    if(fork() == 0)
+    {
+        char auxMessage[2];
+        int n;
+
+        while(true)
+        {
+            
+            n = read(fdOperations[0],readbuffer, BUFF_SIZE);
+
+            for (int i = 1; i < n; i++)
+            {
+                auxMessage[0] = readbuffer[i];
+                auxMessage[1] = '\0';
+
+                sendMessage(STDERR_FILENO, auxMessage);
+
+                if (readbuffer[0] == '+')       operations[i-1] += atoi(auxMessage); 
+                
+                else if (readbuffer[0] == '-')  operations[i-1] -= atoi(auxMessage); 
+                
+                else sendMessage(STDERR_FILENO, "Garbage collected\n");
+            }
+
+                sendMessage(STDERR_FILENO, "ta aqui o manel\n");
+                sendMessage(STDERR_FILENO, readbuffer);
+                sendMessage(STDERR_FILENO, "\no manel ta em cima\n");
+        }
+    }
 
     //Loop that will constantly listen for new requests
     while(1)
@@ -169,8 +205,8 @@ int main(int argc, char **argv)
         }
         else if (pid == 0) //Son
         {
-            close(fd[1]);
-
+            close(fd[PIPE_OUT]);
+            close(fdOperations[PIPE_IN]);
             //Opening pipe [Client -> Server]
             
             char buff[BUFF_SIZE] = "";
@@ -200,7 +236,7 @@ int main(int argc, char **argv)
                 continue;
             }
 
-            doRequest(args, client, execsPath, ourFather);
+            doRequest(args, client, execsPath, ourFather, fdOperations[PIPE_OUT]);
 
             close(client);
             unlink(fifo);
@@ -239,7 +275,7 @@ void sendMessage(int output, char *message)
 /*******************************************************************************
 FUNCTION:
 *******************************************************************************/
-void doRequest(char **args, int client, char *execsPath, pid_t ourFather)
+void doRequest(char **args, int client, char *execsPath, pid_t ourFather, int fdOperations)
 {
     if(!strcmp(args[TYPE], "proc-file"))
     {
@@ -247,6 +283,7 @@ void doRequest(char **args, int client, char *execsPath, pid_t ourFather)
         sendMessage(client, "Your request will be processed now\n");
 
         int opsCounter[MAX_OPS];
+        char operationsMessage[BUFF_SIZE], operationsMessageAux[BUFF_SIZE];
         pid_t imAChild = getpid();
 
         switch(checkOps(args+ARGS, opsCounter))
@@ -267,13 +304,25 @@ void doRequest(char **args, int client, char *execsPath, pid_t ourFather)
             kill(ourFather, SIGUSR2); //we can continue
 
         default:
-            for(int i = 0; i < MAX_OPS; i++) operations[i] += opsCounter[i];
+            strcpy(operationsMessage,"+");
+
+            for(int i = 0; i < MAX_OPS; i++) {
+
+                sprintf(operationsMessageAux,"%d",operations[i]);
+                strcat(operationsMessage,operationsMessageAux);
+                
+            }
+
+            write(fdOperations, operationsMessage,sizeof(operationsMessage));
+
+            sendMessage(STDERR_FILENO, operationsMessage);
 
             //Since procFile will mess with STDIN and STDOUT
             procFileFunc(args, execsPath);
 
 
-            for(int i = 0; i < MAX_OPS; i++) operations[i] -= opsCounter[i];
+            operationsMessage[0] = '-';
+            write(fdOperations, operationsMessage,sizeof(operationsMessage));
 
             sendMessage(STDOUT_FILENO, "Request processed\n---------------------------------------\n");
             sendMessage(client, "Your request was processed\n");
@@ -354,6 +403,8 @@ FUNCTION: Function for a 'process file' request
 *******************************************************************************/
 bool procFileFunc(char **args, char* execsPath)
 {    
+    sleep(10);
+
     bool retVal = true;
     int **pipes = NULL; //We need n-1 pipes
     
