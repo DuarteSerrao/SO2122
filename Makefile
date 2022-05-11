@@ -25,9 +25,12 @@ test:
 testServ: 
 	./bin/sdstored config.txt bin/sdstore-transformations/
 
-testCli:
-	./bin/sdstore proc-file teste.txt teste1 nop
 
+testCli:
+	./bin/sdstore proc-file teste.txt teste1.txt nop nop & ./bin/sdstore proc-file teste.txt teste2.txt nop nop &
+
+testStat:
+	./bin/sdstore status
 
 
 #./bin/sdstored configuracao.txt ./SDStore-transf

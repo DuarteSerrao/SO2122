@@ -26,15 +26,10 @@ DEVELOPERS: a83630, Duarte Serrão
 #define PIPE_OUT  1
 
 
-enum customSignals
-{
-    SIG_FREE,  //Any process that ends sends this to FATHER
-    SIG_SUCC,  //Request will be processed
-    SIG_UNSUCC //Request will be in queue
-};
-
-
-
+//CUSTOM SIGNALS
+#define SIG_SUCC      (SIGRTMIN+3)
+#define SIG_GET_STATE (SIGRTMIN+4)
+#define SIG_SET_OPS   (SIGRTMIN+5)
 
 
 //NEW TYPES
@@ -97,6 +92,10 @@ void          statusFunc (char *message);
 operationType strToOpType (const char *str);
 void          terminate   (int signum);
 bool          testPath    (char *path);
+static void   handler(int sig, siginfo_t *si, void *uap);
+void          sendMsgToProc(pid_t pid, char *message);
+void          opsToStr(char *operationsMessage, int ops[MAX_OPS]);
+
 
 
 
@@ -112,8 +111,18 @@ int main(int argc, char **argv)
 
     signal(SIGINT, terminate);
     signal(SIGTERM, terminate);
-    signal(SIGUSR1, freeChild);
-    signal(SIGUSR2, gradChild);
+
+
+
+    struct sigaction sa;
+    memset(&sa, 0, sizeof(sa));
+    sa.sa_sigaction = handler;
+    sa.sa_flags = SA_SIGINFO | SA_RESTART | SA_NOCLDSTOP;
+
+
+
+    sigaction(SIGCHLD, &sa, NULL);
+    sigaction(SIG_SUCC, &sa, NULL);
 
     //We need to get absolute path for execv
     char *execsPath = malloc((strlen(getenv("PWD")) + strlen(argv[2]) + 2) * sizeof(char));
@@ -141,46 +150,36 @@ int main(int argc, char **argv)
         return 3; //error
     }
 
+    //Loop that will constantly listen for comunication from children
     if(fork() == 0)
     {
+        close(fdOperations[PIPE_OUT]);
         char auxMessage[2];
-        int n;
-
+        
         while(true)
         {
             
-            n = read(fdOperations[0],readbuffer, BUFF_SIZE);
-
+            int n = read(fdOperations[PIPE_IN],readbuffer, BUFF_SIZE);
+            printf("%d\n", n);
             for (int i = 1; i < n; i++)
             {
                 auxMessage[0] = readbuffer[i];
                 auxMessage[1] = '\0';
 
                 sendMessage(STDERR_FILENO, auxMessage);
-
+              
                 if (readbuffer[0] == '+')       operations[i-1] += atoi(auxMessage); 
-                
+              
                 else if (readbuffer[0] == '-')  operations[i-1] -= atoi(auxMessage); 
-                
+              
                 else sendMessage(STDERR_FILENO, "Garbage collected\n");
             }
-
-                sendMessage(STDERR_FILENO, "ta aqui o manel\n");
-                sendMessage(STDERR_FILENO, readbuffer);
-                sendMessage(STDERR_FILENO, "\no manel ta em cima\n");
         }
     }
 
     //Loop that will constantly listen for new requests
     while(1)
     {
-        int fd[2];
-        if(pipe(fd) == -1)
-        {
-            sendMessage(STDERR_FILENO, "pipe failed :/\n");
-            return 3;
-        }
-
         char buff[BUFF_SIZE] = "";
         
         int listener = open("tmp/pipCliServ", O_RDONLY);
@@ -195,6 +194,8 @@ int main(int argc, char **argv)
             
         sendMessage(STDOUT_FILENO, "Request received from client\n"); 
 
+        buff[n] = '\0';
+
 
 
         pid_t pid = fork();
@@ -205,15 +206,8 @@ int main(int argc, char **argv)
         }
         else if (pid == 0) //Son
         {
-            close(fd[PIPE_OUT]);
             close(fdOperations[PIPE_IN]);
             //Opening pipe [Client -> Server]
-            
-            char buff[BUFF_SIZE] = "";
-            int n = read(fd[0], buff, BUFF_SIZE);
-            buff[n] = '\0';
-
-            close(fd[0]);
 
             //printf("%s\n", buff);
             char **args = parseArgs(buff);
@@ -228,8 +222,6 @@ int main(int argc, char **argv)
             //Opening pipe [Server -> Client]
             int client = open(fifo, O_WRONLY); //| O_NONBLOCK
 
-            printf("%s\n", fifo);
-
             if(client < 0)//In case we can't communicate back with client, we choose not to continue the request
             {
                 sendMessage(STDERR_FILENO, "Couldn't open pipe Server->Client.\n");
@@ -241,18 +233,12 @@ int main(int argc, char **argv)
             close(client);
             unlink(fifo);
 
-            kill(ourFather, SIGUSR1);
+            kill(ourFather, SIGCHLD);
             
             exit(0);
         }
         else //FATHER
         {
-            close(fd[0]);
-
-            write(fd[1], buff, n);
-            buff[0] = '\0';
-
-            close(fd[1]);
             close(listener);
 
             //int status;
@@ -283,7 +269,7 @@ void doRequest(char **args, int client, char *execsPath, pid_t ourFather, int fd
         sendMessage(client, "Your request will be processed now\n");
 
         int opsCounter[MAX_OPS];
-        char operationsMessage[BUFF_SIZE], operationsMessageAux[BUFF_SIZE];
+        char operationsMessage[BUFF_SIZE];
         pid_t imAChild = getpid();
 
         switch(checkOps(args+ARGS, opsCounter))
@@ -301,28 +287,20 @@ void doRequest(char **args, int client, char *execsPath, pid_t ourFather, int fd
 
             do{  kill(imAChild, SIGSTOP);  } while(!checkOps(args+ARGS, opsCounter));
 
-            kill(ourFather, SIGUSR2); //we can continue
+            kill(ourFather, SIG_SUCC); //we can continue
 
         default:
             strcpy(operationsMessage,"+");
+            opsToStr(operationsMessage, opsCounter);
 
-            for(int i = 0; i < MAX_OPS; i++) {
-
-                sprintf(operationsMessageAux,"%d",operations[i]);
-                strcat(operationsMessage,operationsMessageAux);
-                
-            }
-
-            write(fdOperations, operationsMessage,sizeof(operationsMessage));
-
-            sendMessage(STDERR_FILENO, operationsMessage);
+            write(fdOperations, operationsMessage, strlen(operationsMessage));
 
             //Since procFile will mess with STDIN and STDOUT
             procFileFunc(args, execsPath);
 
 
             operationsMessage[0] = '-';
-            write(fdOperations, operationsMessage,sizeof(operationsMessage));
+            write(fdOperations, operationsMessage, strlen(operationsMessage));
 
             sendMessage(STDOUT_FILENO, "Request processed\n---------------------------------------\n");
             sendMessage(client, "Your request was processed\n");
@@ -332,6 +310,7 @@ void doRequest(char **args, int client, char *execsPath, pid_t ourFather, int fd
     else if(!strcmp(args[TYPE], "status"))
     {
         sendMessage(STDOUT_FILENO, "Request type: STATUS\n---------------------------------------\n");
+        kill(ourFather, SIG_GET_STATE);
         char message[BUFF_SIZE];
         statusFunc (message);
         sendMessage(client, message);
@@ -352,7 +331,7 @@ int checkOps(char *args[], int *opsCounter)
 {
     int retVal = 1;
 
-    //
+    //Inicializing opsCounter
     for(int i = 0; i < MAX_OPS; i++) opsCounter[i] = 0;
 
     //
@@ -366,12 +345,12 @@ int checkOps(char *args[], int *opsCounter)
             opsCounter = NULL;
             return -1;
         }
+    
         if((operations[i] + opsCounter[i]) > maxOperations[i])
         {
             retVal = 0;
         }
     }
-        
     return retVal;
 }
 
@@ -382,13 +361,18 @@ FUNCTION: Function for a 'status' request
 *******************************************************************************/
 void statusFunc (char *message)
 {
+    int n = read(STDIN_FILENO, message, BUFF_SIZE);
+    message[n]='\0';
+
+
+    //Operations part
     char aux[3];
     for(int i = 0; i < MAX_OPS; i++)
     {
         strcat(message, "transf ");
         strcat(message, conversion[i].str);
         strcat(message, ": ");
-        sprintf(aux, "%d", operations[i]);
+        sprintf(aux, "%d", message[i]);
         strcat(message, aux);
         strcat(message, "/");
         sprintf(aux, "%d", maxOperations[i]);
@@ -403,7 +387,7 @@ FUNCTION: Function for a 'process file' request
 *******************************************************************************/
 bool procFileFunc(char **args, char* execsPath)
 {    
-    sleep(10);
+    sleep(3); //TIRAR DEPOIS
 
     bool retVal = true;
     int **pipes = NULL; //We need n-1 pipes
@@ -624,10 +608,8 @@ bool startUp(char *configFile, char *execsPath)
 }
 
 
-
-
 /*******************************************************************************
-FUNCTION: 
+FUNCTION: Takes first element of queue and returnes it
 *******************************************************************************/
 pid_t getFirstElem()
 {
@@ -642,7 +624,7 @@ pid_t getFirstElem()
 }
 
 /*******************************************************************************
-FUNCTION: 
+FUNCTION: Adds element to end of queue
 *******************************************************************************/
 void putElem(pid_t pid)
 {
@@ -654,16 +636,67 @@ void putElem(pid_t pid)
 }
 
 
-void freeChild(int sig)
+static void handler(int sig, siginfo_t *si, void *uap)
 {
-    if(queue != NULL) kill(queue[0], SIGCONT);
-    sendMessage(STDERR_FILENO, "IM FREEEEEEE\n");
-    //exit(sig);
+    if(si->si_code != SI_USER ) return;
+
+    //When the parent process recieves signal that a child process was
+    //successful in finding space for available execs, it will remove the 
+    //first element of the queue (the one who succeeded) and try to
+    //"continue process" the next request.
+    if(sig == SIG_SUCC) getFirstElem();
+
+
+
+    //When the parent process recieves signal that a child process finished,
+    //it will try to force a "continue process" on the first pendent request
+    if((sig == SIGCHLD || sig == SIG_SUCC)&& queue != NULL)
+        kill(queue[0], SIGCONT);
+
+
+
+
+    if(sig == SIG_GET_STATE && si->si_pid != getpid())
+    {
+        //The first MAX_OPS bytes are reserved for the operations availability
+        char opsMSG[MAX_OPS];
+        opsToStr(opsMSG, operations);
+        sendMsgToProc(si->si_pid, opsMSG);
+    }
+
 }
 
-void gradChild(int sig)
+
+
+
+void sendMsgToProc(pid_t pid, char *message)
 {
-    getFirstElem();
-    kill(queue[0], SIGCONT);
-    //exit(sig);
+    //pit to string
+    char mypid[6];
+    sprintf(mypid, "%d", pid);
+
+    //Defining path of the stdin of process
+    char path[40]="/proc/";
+    strcat(path, mypid);
+    strcat(path, "/fd/0");
+
+    //Opening STDIN of process
+    int procFD = open(path, O_WRONLY | O_TRUNC);
+
+    sendMessage(procFD, message);
+}
+
+void opsToStr(char *operationsMessage, int ops[MAX_OPS])
+{
+    for(int i = 0; i < MAX_OPS; i++) 
+    {
+        char aux[2];
+        sprintf(aux,"%d",ops[i]);
+        strcat(operationsMessage,aux);
+    }
+}
+
+void strToOps(char *operationsMessage, int ops[MAX_OPS])
+{
+
 }
