@@ -27,12 +27,11 @@ DEVELOPERS: a83630, Duarte Serrão
 
 
 //CUSTOM SIGNALS
-#define SIG_SUCC      (SIGRTMIN+3)
-#define SIG_GET_STATE (SIGRTMIN+4)
-#define SIG_SET_OPS   (SIGRTMIN+5)
+#define SIG_SUCC    (SIGRTMIN+3)
+#define SIG_SET_OPS (SIGRTMIN+4)
 
 
-//NEW TYPES
+//GLOBAL VARS
 int maxOperations[MAX_OPS];
 int operations[MAX_OPS];
 
@@ -40,6 +39,7 @@ pid_t *queue;
 int queueSize;
 
 
+//NEW TYPES
 typedef enum
 {
   NOP,
@@ -50,10 +50,11 @@ typedef enum
   ENCRYPT,
   DECRYPT,
   NONE
-} operationType;
+} opType;
 
 const static struct {
-    operationType  val;
+    opType
+  val;
     const char    *str;
 } conversion [] = {
     {NOP,         "nop"},
@@ -77,24 +78,24 @@ enum requestArgIndex
 
 
 //FUNCTIONS INDEX
-int           checkOps    (char *args[], int *opsCounter);
-pid_t         getFirstElem();
-void          gradChild   (int sig);
-void          doRequest(char **args, int client, char *execsPath, pid_t ourFather, int fdOperations);
-void          freeChild   (int sig);
-char**        parseArgs   (char *buff);
-bool          parseConfig (char *buffer);
-bool          procFileFunc(char **args, char *execsPath);
-void          putElem(pid_t pid);
-void          sendMessage (int output, char *message);
-bool          startUp     (char *configFile, char *execsPath);
-void          statusFunc (char *message);
-operationType strToOpType (const char *str);
-void          terminate   (int signum);
-bool          testPath    (char *path);
-static void   handler(int sig, siginfo_t *si, void *uap);
-void          sendMsgToProc(pid_t pid, char *message);
-void          opsToStr(char *operationsMessage, int ops[MAX_OPS]);
+int         checkOps     (char *args[], int *opsCounter);
+void        doRequest    (char **args, int client, char *execsPath, pid_t ourFather);
+void        freeChild    (int sig);
+pid_t       getFirstElem ();
+void        gradChild    (int sig);
+static void handler      (int sig, siginfo_t *si, void *uap);
+void        opsToStr     (char *opsMSG, int ops[MAX_OPS]);
+char**      parseArgs    (char *buff);
+bool        parseConfig  (char *buffer);
+bool        procFileFunc (char **args, char *execsPath);
+void        putElem      (pid_t pid);
+void        sendMessage  (int output, char *message);
+void        setOps       (char *opsMSG);
+bool        startUp      (char *configFile, char *execsPath);
+void        statusFunc   (char *message);
+opType      strToOpType  (const char *str);
+void        terminate    (int signum);
+bool        testPath     (char *path);
 
 
 
@@ -104,10 +105,8 @@ FUNCTION: Main function that will control the whole flow of the server
 *******************************************************************************/
 int main(int argc, char **argv)
 {
-    queue = NULL;
-    queueSize = 0;
 
-    pid_t ourFather = getpid();
+    //------------------------------SIGNAL STUFF-----------------------------//
 
     signal(SIGINT, terminate);
     signal(SIGTERM, terminate);
@@ -123,9 +122,20 @@ int main(int argc, char **argv)
 
     sigaction(SIGCHLD, &sa, NULL);
     sigaction(SIG_SUCC, &sa, NULL);
+    sigaction(SIG_SET_OPS, &sa, NULL);
+
+
+
+
+    //---------------------------------START UP------------------------------//
+
+    queue = NULL;
+    queueSize = 0;
+
+    pid_t ourFather = getpid();
 
     //We need to get absolute path for execv
-    char *execsPath = malloc((strlen(getenv("PWD")) + strlen(argv[2]) + 2) * sizeof(char));
+    char *execsPath = malloc(strlen(getenv("PWD")) + strlen(argv[2]) + 2);
     strcpy(execsPath, getenv("PWD"));
     strcat(execsPath, "/");
     strcat(execsPath, argv[2]);
@@ -138,56 +148,32 @@ int main(int argc, char **argv)
 
     sendMessage(STDOUT_FILENO, "Server starting...\n");
 
-    //Making pipes
+    //Making named Client->Server pipe
     mkfifo("tmp/pipCliServ", 0644);
 
     sendMessage(STDOUT_FILENO, "Recieving pipe created...\nListening...\n---------------------------------------\n");
 
-    int fdOperations[2];
-    char readbuffer[BUFF_SIZE];
 
-    if(pipe(fdOperations) == -1){
-        return 3; //error
-    }
 
-    //Loop that will constantly listen for comunication from children
-    if(fork() == 0)
-    {
-        close(fdOperations[PIPE_OUT]);
-        char auxMessage[2];
-        
-        while(true)
-        {
-            
-            int n = read(fdOperations[PIPE_IN],readbuffer, BUFF_SIZE);
-            printf("%d\n", n);
-            for (int i = 1; i < n; i++)
-            {
-                auxMessage[0] = readbuffer[i];
-                auxMessage[1] = '\0';
 
-                sendMessage(STDERR_FILENO, auxMessage);
-              
-                if (readbuffer[0] == '+')       operations[i-1] += atoi(auxMessage); 
-              
-                else if (readbuffer[0] == '-')  operations[i-1] -= atoi(auxMessage); 
-              
-                else sendMessage(STDERR_FILENO, "Garbage collected\n");
-            }
-        }
-    }
 
-    //Loop that will constantly listen for new requests
+
+
+
+    //---------------------------------LISTENER------------------------------//
+
     while(1)
     {
-        char buff[BUFF_SIZE] = "";
         
+        //Opening pipe
         int listener = open("tmp/pipCliServ", O_RDONLY);
         if(listener < 0)
         {
             sendMessage(STDERR_FILENO, "Couldn't open pipe Client->Server.\n---------------------------------------\n");
             return 2;
         }
+
+        char buff[BUFF_SIZE] = "";
 
         //Getting the size of what was actually read
         ssize_t n = read (listener, buff, BUFF_SIZE);
@@ -206,7 +192,6 @@ int main(int argc, char **argv)
         }
         else if (pid == 0) //Son
         {
-            close(fdOperations[PIPE_IN]);
             //Opening pipe [Client -> Server]
 
             //printf("%s\n", buff);
@@ -228,7 +213,7 @@ int main(int argc, char **argv)
                 continue;
             }
 
-            doRequest(args, client, execsPath, ourFather, fdOperations[PIPE_OUT]);
+            doRequest(args, client, execsPath, ourFather);
 
             close(client);
             unlink(fifo);
@@ -261,7 +246,7 @@ void sendMessage(int output, char *message)
 /*******************************************************************************
 FUNCTION:
 *******************************************************************************/
-void doRequest(char **args, int client, char *execsPath, pid_t ourFather, int fdOperations)
+void doRequest(char **args, int client, char *execsPath, pid_t ourFather)
 {
     if(!strcmp(args[TYPE], "proc-file"))
     {
@@ -269,7 +254,8 @@ void doRequest(char **args, int client, char *execsPath, pid_t ourFather, int fd
         sendMessage(client, "Your request will be processed now\n");
 
         int opsCounter[MAX_OPS];
-        char operationsMessage[BUFF_SIZE];
+        char opsMSG
+[BUFF_SIZE];
         pid_t imAChild = getpid();
 
         switch(checkOps(args+ARGS, opsCounter))
@@ -290,17 +276,18 @@ void doRequest(char **args, int client, char *execsPath, pid_t ourFather, int fd
             kill(ourFather, SIG_SUCC); //we can continue
 
         default:
-            strcpy(operationsMessage,"+");
-            opsToStr(operationsMessage, opsCounter);
-
-            write(fdOperations, operationsMessage, strlen(operationsMessage));
+            strcpy(opsMSG,"+");
+            opsToStr(opsMSG, opsCounter);
+            sigqueue(ourFather, SIG_SET_OPS, (union sigval){ .sival_ptr = (void *)opsMSG });
+            //write(fdOperations, opsMSG, strlen(opsMSG));
 
             //Since procFile will mess with STDIN and STDOUT
             procFileFunc(args, execsPath);
 
 
-            operationsMessage[0] = '-';
-            write(fdOperations, operationsMessage, strlen(operationsMessage));
+            opsMSG[0] = '-';
+            sigqueue(ourFather, SIG_SET_OPS, (union sigval){ .sival_ptr = (void *)opsMSG });
+            //write(fdOperations, opsMSG, strlen(opsMSG));
 
             sendMessage(STDOUT_FILENO, "Request processed\n---------------------------------------\n");
             sendMessage(client, "Your request was processed\n");
@@ -310,7 +297,6 @@ void doRequest(char **args, int client, char *execsPath, pid_t ourFather, int fd
     else if(!strcmp(args[TYPE], "status"))
     {
         sendMessage(STDOUT_FILENO, "Request type: STATUS\n---------------------------------------\n");
-        kill(ourFather, SIG_GET_STATE);
         char message[BUFF_SIZE];
         statusFunc (message);
         sendMessage(client, message);
@@ -337,7 +323,8 @@ int checkOps(char *args[], int *opsCounter)
     //
     for(int i = 0; args[i] != NULL; i++)
     {
-        operationType type = strToOpType(args[i]);
+        opType
+     type = strToOpType(args[i]);
         opsCounter[type]++;
 
         if(opsCounter[i] > maxOperations[i])
@@ -361,10 +348,6 @@ FUNCTION: Function for a 'status' request
 *******************************************************************************/
 void statusFunc (char *message)
 {
-    int n = read(STDIN_FILENO, message, BUFF_SIZE);
-    message[n]='\0';
-
-
     //Operations part
     char aux[3];
     for(int i = 0; i < MAX_OPS; i++)
@@ -372,7 +355,7 @@ void statusFunc (char *message)
         strcat(message, "transf ");
         strcat(message, conversion[i].str);
         strcat(message, ": ");
-        sprintf(aux, "%d", message[i]);
+        sprintf(aux, "%d", operations[i]);
         strcat(message, aux);
         strcat(message, "/");
         sprintf(aux, "%d", maxOperations[i]);
@@ -507,7 +490,7 @@ char** parseArgs(char *buff)
 
         //Copy the current argument
         args[numArgs - 1] = malloc(strlen(token) + 1); /* The +1 for length is for the terminating '\0' character */
-        snprintf(args[numArgs - 1], strlen(token) + 1, "%s", token);// O DUARTE NAO GOSTA
+        snprintf(args[numArgs - 1], strlen(token) + 1, "%s", token);
         token = strtok(NULL, " ");
 
     }
@@ -545,9 +528,9 @@ bool testPath(char *path)
 }
 
 /*******************************************************************************
-FUNCTION: From a string, it check if it is part of the enum operationType
+FUNCTION: From a string, it check if it is part of the enum opType
 *******************************************************************************/
-operationType strToOpType (const char *str)
+opType strToOpType (const char *str)
 {
     for (int i = 0;  i < sizeof (conversion) / sizeof (conversion[0]);  ++i)
         if (!strcmp (str, conversion[i].str))
@@ -568,7 +551,8 @@ bool parseConfig(char *buffer)
 
     while (token != NULL)
     {
-        operationType type = strToOpType(token);
+        opType
+     type = strToOpType(token);
         if(type != NONE)
         {
             maxOperations[type] = atoi(strtok(NULL,"\n"));
@@ -636,6 +620,9 @@ void putElem(pid_t pid)
 }
 
 
+/*******************************************************************************
+FUNCTION: Handler function for signals sent by the user
+*******************************************************************************/
 static void handler(int sig, siginfo_t *si, void *uap)
 {
     if(si->si_code != SI_USER ) return;
@@ -656,47 +643,57 @@ static void handler(int sig, siginfo_t *si, void *uap)
 
 
 
-    if(sig == SIG_GET_STATE && si->si_pid != getpid())
+    //if(sig == SIG_GET_STATE && si->si_pid != getpid())
+    //{
+    //    //The first MAX_OPS bytes are reserved for the operations availability
+    //    char opsMSG[MAX_OPS];
+    //    opsToStr(opsMSG, operations);
+    //    sendMsgToProc(si->si_pid, opsMSG);
+    //}
+
+    if(sig == SIG_SET_OPS && si->si_pid != getpid())
     {
+        char *opsMSG = si->si_ptr;
         //The first MAX_OPS bytes are reserved for the operations availability
-        char opsMSG[MAX_OPS];
-        opsToStr(opsMSG, operations);
-        sendMsgToProc(si->si_pid, opsMSG);
+        setOps(opsMSG);
     }
 
 }
 
 
-
-
-void sendMsgToProc(pid_t pid, char *message)
-{
-    //pit to string
-    char mypid[6];
-    sprintf(mypid, "%d", pid);
-
-    //Defining path of the stdin of process
-    char path[40]="/proc/";
-    strcat(path, mypid);
-    strcat(path, "/fd/0");
-
-    //Opening STDIN of process
-    int procFD = open(path, O_WRONLY | O_TRUNC);
-
-    sendMessage(procFD, message);
-}
-
-void opsToStr(char *operationsMessage, int ops[MAX_OPS])
+/*******************************************************************************
+FUNCTION: 
+*******************************************************************************/
+void opsToStr(char *opsMSG, int ops[MAX_OPS])
 {
     for(int i = 0; i < MAX_OPS; i++) 
     {
         char aux[2];
         sprintf(aux,"%d",ops[i]);
-        strcat(operationsMessage,aux);
+        strcat(opsMSG,aux);
     }
 }
 
-void strToOps(char *operationsMessage, int ops[MAX_OPS])
+
+/*******************************************************************************
+FUNCTION: 
+*******************************************************************************/
+void setOps(char *opsMSG)
 {
+    char auxMessage[2];
+    for (int i = 1; i <= MAX_OPS; i++)
+    {
+        //Geting each number and seperating them in different strings
+        auxMessage[0] = opsMSG[i];
+        auxMessage[1] = '\0';
+
+        sendMessage(STDERR_FILENO, auxMessage);
+      
+        if (opsMSG[0] == '+')       operations[i-1] += atoi(auxMessage); 
+      
+        else if (opsMSG[0] == '-')  operations[i-1] -= atoi(auxMessage); 
+      
+        else sendMessage(STDERR_FILENO, "Garbage collected\n");
+    }
 
 }
