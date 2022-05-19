@@ -134,7 +134,7 @@ int main(int argc, char **argv)
 
     pid_t ourFather = getpid();
 
-    //We need to get absolute path for execv
+    //Getting absolute path for execv
     char *execsPath = malloc(strlen(getenv("PWD")) + strlen(argv[2]) + 2);
     strcpy(execsPath, getenv("PWD"));
     strcat(execsPath, "/");
@@ -625,6 +625,16 @@ FUNCTION: Handler function for signals sent by the user
 *******************************************************************************/
 static void handler(int sig, siginfo_t *si, void *uap)
 {
+
+    if(sig == SIG_SET_OPS && si->si_pid != getpid())
+    {
+        sendMessage(STDERR_FILENO, "here\n");
+        char *opsMSG = si->si_ptr;
+        //The first MAX_OPS bytes are reserved for the operations availability
+        setOps(opsMSG);
+    }
+
+    
     if(si->si_code != SI_USER ) return;
 
     //When the parent process recieves signal that a child process was
@@ -651,12 +661,6 @@ static void handler(int sig, siginfo_t *si, void *uap)
     //    sendMsgToProc(si->si_pid, opsMSG);
     //}
 
-    if(sig == SIG_SET_OPS && si->si_pid != getpid())
-    {
-        char *opsMSG = si->si_ptr;
-        //The first MAX_OPS bytes are reserved for the operations availability
-        setOps(opsMSG);
-    }
 
 }
 
@@ -680,6 +684,7 @@ FUNCTION:
 *******************************************************************************/
 void setOps(char *opsMSG)
 {
+    sendMessage(STDERR_FILENO, opsMSG);
     char auxMessage[2];
     for (int i = 1; i <= MAX_OPS; i++)
     {
