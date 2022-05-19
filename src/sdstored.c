@@ -92,7 +92,7 @@ bool        parseConfig  (char *buffer);
 bool        procFileFunc (char **args, char *execsPath);
 void        putElem      (pid_t pid);
 void        sendMessage  (int output, char *message);
-void        setOps       (char *opsMSG);
+bool        setOps       (char *opsMSG);
 bool        startUp      (char *configFile, char *execsPath);
 void        statusFunc   (char *message);
 opType      strToOpType  (const char *str);
@@ -281,17 +281,19 @@ void doRequest(char **args, int client, char *execsPath, pid_t ourFather)
             //sigqueue(ourFather, SIG_SET_OPS, (union sigval){ .sival_ptr = (void *)opsMSG });
             kill(ourFather, SIG_SET_OPS);
             write(fdOperations[PIPE_OUT], opsMSG, strlen(opsMSG));
-
+            printf("Primeiro: %d\n", getpid());
             kill(imAChild, SIGSTOP);
 
             //Since procFile will mess with STDIN and STDOUT
             procFileFunc(args, execsPath);
-
+            printf("Segundo: %d\n", getpid());
 
             opsMSG[0] = '-';
             //sigqueue(ourFather, SIG_SET_OPS, (union sigval){ .sival_ptr = (void *)opsMSG });
-            kill(ourFather, SIG_SET_OPS);
+
             write(fdOperations[PIPE_OUT], opsMSG, strlen(opsMSG));
+            kill(ourFather, SIG_SET_OPS);
+            
 
             sendMessage(STDOUT_FILENO, "Request processed\n---------------------------------------\n");
             sendMessage(client, "Your request was processed\n");
@@ -631,7 +633,8 @@ static void handler(int sig, siginfo_t *si, void *uap)
 {
 
     if(sig == SIG_SET_OPS && si->si_pid != getpid())
-    {
+    {   
+        printf("Handler: %d\n", si->si_pid);
         char opsMSG[MAX_OPS+2];
         int n = read(fdOperations[PIPE_IN], opsMSG, MAX_OPS+2);
 
@@ -697,6 +700,7 @@ FUNCTION:
 bool setOps(char *opsMSG)
 {
 
+    printf("%s\n", opsMSG);
     char auxMessage[2];
     for (int i = 1; i <= MAX_OPS; i++)
     {
@@ -705,7 +709,8 @@ bool setOps(char *opsMSG)
         auxMessage[1] = '\0';
 
         int value = atoi(auxMessage);
-      
+        
+        
         if (opsMSG[0] == '+')
             if(operations[i-1] + value <= maxOperations[i-1])
                 operations[i-1] += value; 
