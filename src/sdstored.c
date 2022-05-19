@@ -38,6 +38,8 @@ int operations[MAX_OPS];
 pid_t *queue;
 int queueSize;
 
+int fdOperations[2];
+
 
 //NEW TYPES
 typedef enum
@@ -124,6 +126,8 @@ int main(int argc, char **argv)
     sigaction(SIG_SUCC, &sa, NULL);
     sigaction(SIG_SET_OPS, &sa, NULL);
 
+    pipe(fdOperations);
+
 
 
 
@@ -152,12 +156,6 @@ int main(int argc, char **argv)
     mkfifo("tmp/pipCliServ", 0644);
 
     sendMessage(STDOUT_FILENO, "Recieving pipe created...\nListening...\n---------------------------------------\n");
-
-
-
-
-
-
 
 
     //---------------------------------LISTENER------------------------------//
@@ -192,6 +190,7 @@ int main(int argc, char **argv)
         }
         else if (pid == 0) //Son
         {
+            close(fdOperations[PIPE_IN]);
             //Opening pipe [Client -> Server]
 
             //printf("%s\n", buff);
@@ -224,6 +223,7 @@ int main(int argc, char **argv)
         }
         else //FATHER
         {
+            close(fdOperations[PIPE_OUT]);
             close(listener);
 
             //int status;
@@ -278,16 +278,20 @@ void doRequest(char **args, int client, char *execsPath, pid_t ourFather)
         default:
             strcpy(opsMSG,"+");
             opsToStr(opsMSG, opsCounter);
-            sigqueue(ourFather, SIG_SET_OPS, (union sigval){ .sival_ptr = (void *)opsMSG });
-            //write(fdOperations, opsMSG, strlen(opsMSG));
+            //sigqueue(ourFather, SIG_SET_OPS, (union sigval){ .sival_ptr = (void *)opsMSG });
+            kill(ourFather, SIG_SET_OPS);
+            write(fdOperations[PIPE_OUT], opsMSG, strlen(opsMSG));
+
+            kill(imAChild, SIGSTOP);
 
             //Since procFile will mess with STDIN and STDOUT
             procFileFunc(args, execsPath);
 
 
             opsMSG[0] = '-';
-            sigqueue(ourFather, SIG_SET_OPS, (union sigval){ .sival_ptr = (void *)opsMSG });
-            //write(fdOperations, opsMSG, strlen(opsMSG));
+            //sigqueue(ourFather, SIG_SET_OPS, (union sigval){ .sival_ptr = (void *)opsMSG });
+            kill(ourFather, SIG_SET_OPS);
+            write(fdOperations[PIPE_OUT], opsMSG, strlen(opsMSG));
 
             sendMessage(STDOUT_FILENO, "Request processed\n---------------------------------------\n");
             sendMessage(client, "Your request was processed\n");
@@ -628,10 +632,18 @@ static void handler(int sig, siginfo_t *si, void *uap)
 
     if(sig == SIG_SET_OPS && si->si_pid != getpid())
     {
-        sendMessage(STDERR_FILENO, "here\n");
-        char *opsMSG = si->si_ptr;
-        //The first MAX_OPS bytes are reserved for the operations availability
-        setOps(opsMSG);
+        char opsMSG[MAX_OPS+2];
+        int n = read(fdOperations[PIPE_IN], opsMSG, MAX_OPS+2);
+
+        if(setOps(opsMSG))
+        {
+            kill(si->si_pid, SIGCONT);
+        }
+        else
+        {
+            putElem(si->si_pid);
+        }
+
     }
 
     
@@ -682,9 +694,9 @@ void opsToStr(char *opsMSG, int ops[MAX_OPS])
 /*******************************************************************************
 FUNCTION: 
 *******************************************************************************/
-void setOps(char *opsMSG)
+bool setOps(char *opsMSG)
 {
-    sendMessage(STDERR_FILENO, opsMSG);
+
     char auxMessage[2];
     for (int i = 1; i <= MAX_OPS; i++)
     {
@@ -692,13 +704,24 @@ void setOps(char *opsMSG)
         auxMessage[0] = opsMSG[i];
         auxMessage[1] = '\0';
 
-        sendMessage(STDERR_FILENO, auxMessage);
+        int value = atoi(auxMessage);
       
-        if (opsMSG[0] == '+')       operations[i-1] += atoi(auxMessage); 
+        if (opsMSG[0] == '+')
+            if(operations[i-1] + value <= maxOperations[i-1])
+                operations[i-1] += value; 
+            else return false;
       
-        else if (opsMSG[0] == '-')  operations[i-1] -= atoi(auxMessage); 
+        else if (opsMSG[0] == '-')
+            if(operations[i-1] - value >= 0)
+                operations[i-1] -= value; 
+            else return false;
       
-        else sendMessage(STDERR_FILENO, "Garbage collected\n");
+        else
+        {
+            sendMessage(STDERR_FILENO, "Garbage collected\n");
+            return false;
+        }
     }
 
+    return true;
 }
