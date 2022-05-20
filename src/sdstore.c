@@ -66,12 +66,16 @@ int main(int argc, char** argv)
 
     //Iterating through all arguments and concatenating them into a buffer
     //This way, we dont make a lot of system calls and send everything together
+    
     for (int i = 1; i < argc; i++)
     {
         argsSize += strlen(argv[i])+1;
         strcat(buff," ");
         strcat(buff, argv[i]);
     }
+
+    //isto nao faz nada
+    buff[strlen(buff)] = '\0';
 
     //Opening [Client -> Server] pipe and verifying if the server is ready
     int server = open("tmp/pipCliServ", O_WRONLY | O_TRUNC);

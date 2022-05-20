@@ -22,8 +22,8 @@ DEVELOPERS: a83630, Duarte Serrão
 #define MAX_ARGS  20
 #define ARG_SIZE  20
 #define MAX_OPS   7
-#define PIPE_IN   0
-#define PIPE_OUT  1
+#define PIPE_RD   0
+#define PIPE_WR  1
 
 
 //CUSTOM SIGNALS
@@ -113,8 +113,6 @@ int main(int argc, char **argv)
     signal(SIGINT, terminate);
     signal(SIGTERM, terminate);
 
-
-
     struct sigaction sa;
     memset(&sa, 0, sizeof(sa));
     sa.sa_sigaction = handler;
@@ -127,7 +125,7 @@ int main(int argc, char **argv)
     sigaction(SIG_SET_OPS, &sa, NULL);
 
     pipe(fdOperations);
-
+    
 
 
 
@@ -158,10 +156,12 @@ int main(int argc, char **argv)
     sendMessage(STDOUT_FILENO, "Recieving pipe created...\nListening...\n---------------------------------------\n");
 
 
+
     //---------------------------------LISTENER------------------------------//
 
     while(1)
     {
+        //sleep(0.1);
         
         //Opening pipe
         int listener = open("tmp/pipCliServ", O_RDONLY);
@@ -175,61 +175,56 @@ int main(int argc, char **argv)
 
         //Getting the size of what was actually read
         ssize_t n = read (listener, buff, BUFF_SIZE);
-            
-        sendMessage(STDOUT_FILENO, "Request received from client\n"); 
-
-        buff[n] = '\0';
 
 
+            printf("Current client input -> %s\n", buff);
+                
+            sendMessage(STDOUT_FILENO, "Request received from client\n---------------------------------------\n"); 
 
-        pid_t pid = fork();
+            buff[n] = '\0';
 
-        if(pid < 0)
-        {
-            sendMessage(STDERR_FILENO, "Couldn't open fork for my son\n");     
-        }
-        else if (pid == 0) //Son
-        {
-            close(fdOperations[PIPE_IN]);
-            //Opening pipe [Client -> Server]
+            pid_t pid = fork();
 
-            //printf("%s\n", buff);
-            char **args = parseArgs(buff);
-
-            char fifo[15];
-            strcpy(fifo, "tmp/");
-            strcat(fifo, args[ID]);
-            strcat(fifo, "\0");
-
-            
-
-            //Opening pipe [Server -> Client]
-            int client = open(fifo, O_WRONLY); //| O_NONBLOCK
-
-            if(client < 0)//In case we can't communicate back with client, we choose not to continue the request
+            if(pid < 0)
             {
-                sendMessage(STDERR_FILENO, "Couldn't open pipe Server->Client.\n");
-                continue;
+                sendMessage(STDERR_FILENO, "Couldn't open fork for my son\n");     
             }
+            else if (pid == 0) //Son
+            {
+                close(fdOperations[PIPE_RD]);
+                //Opening pipe [Client -> Server]
 
-            doRequest(args, client, execsPath, ourFather);
+                //printf("%s\n", buff);
+                char **args = parseArgs(buff);
 
-            close(client);
-            unlink(fifo);
+                char fifo[15];
+                strcpy(fifo, "tmp/");
+                strcat(fifo, args[ID]);
+                strcat(fifo, "\0");
 
-            kill(ourFather, SIGCHLD);
-            
-            exit(0);
-        }
-        else //FATHER
-        {
-            close(fdOperations[PIPE_OUT]);
-            close(listener);
 
-            //int status;
-            //waitpid(0, &status, 0);
-        }
+                //Opening pipe [Server -> Client]
+                int client = open(fifo, O_WRONLY); //| O_NONBLOCK
+
+                if(client < 0)//In case we can't communicate back with client, we choose not to continue the request
+                {
+                    sendMessage(STDERR_FILENO, "Couldn't open pipe Server->Client.\n");
+                    continue;
+                }
+
+                doRequest(args, client, execsPath, ourFather);
+
+                close(client);
+                unlink(fifo);
+
+                kill(ourFather, SIGCHLD);
+                
+                exit(0);
+            }
         
+        
+
+        close(listener);   
     }
   return 0;
 }
@@ -254,8 +249,7 @@ void doRequest(char **args, int client, char *execsPath, pid_t ourFather)
         sendMessage(client, "Your request will be processed now\n");
 
         int opsCounter[MAX_OPS];
-        char opsMSG
-[BUFF_SIZE];
+        char opsMSG [BUFF_SIZE];
         pid_t imAChild = getpid();
 
         switch(checkOps(args+ARGS, opsCounter))
@@ -278,21 +272,29 @@ void doRequest(char **args, int client, char *execsPath, pid_t ourFather)
         default:
             strcpy(opsMSG,"+");
             opsToStr(opsMSG, opsCounter);
-            //sigqueue(ourFather, SIG_SET_OPS, (union sigval){ .sival_ptr = (void *)opsMSG });
+
+
+            printf("pid antes do pipe-> %d\n", imAChild);
+
             kill(ourFather, SIG_SET_OPS);
-            write(fdOperations[PIPE_OUT], opsMSG, strlen(opsMSG));
-            printf("Primeiro: %d\n", getpid());
+            write(fdOperations[PIPE_WR], opsMSG, strlen(opsMSG));
+
+
             kill(imAChild, SIGSTOP);
+
+
+            printf("opsmessage  depois do stop-> %s\n", opsMSG);
 
             //Since procFile will mess with STDIN and STDOUT
             procFileFunc(args, execsPath);
-            printf("Segundo: %d\n", getpid());
+
 
             opsMSG[0] = '-';
-            //sigqueue(ourFather, SIG_SET_OPS, (union sigval){ .sival_ptr = (void *)opsMSG });
 
-            write(fdOperations[PIPE_OUT], opsMSG, strlen(opsMSG));
+
+            
             kill(ourFather, SIG_SET_OPS);
+            write(fdOperations[PIPE_WR], opsMSG, strlen(opsMSG));
             
 
             sendMessage(STDOUT_FILENO, "Request processed\n---------------------------------------\n");
@@ -376,7 +378,7 @@ FUNCTION: Function for a 'process file' request
 *******************************************************************************/
 bool procFileFunc(char **args, char* execsPath)
 {    
-    sleep(3); //TIRAR DEPOIS
+    sleep(1); //TIRAR DEPOIS
 
     bool retVal = true;
     int **pipes = NULL; //We need n-1 pipes
@@ -422,8 +424,8 @@ bool procFileFunc(char **args, char* execsPath)
                 retVal = false;
                 break;
             }
-            dup2(pipes[j][PIPE_OUT], STDOUT_FILENO);
-            close(pipes[j][PIPE_OUT]);
+            dup2(pipes[j][PIPE_WR], STDOUT_FILENO);
+            close(pipes[j][PIPE_WR]);
         }
 
 
@@ -444,7 +446,7 @@ bool procFileFunc(char **args, char* execsPath)
             break;
         //DAUGHTER
         case 0:
-            //close(pipes[j][PIPE_IN]);
+            //close(pipes[j][PIPE_RD]);
             execl(path, path, NULL);
             sendMessage(STDERR_FILENO, "Failed to execute\n");
             exit(0);
@@ -453,8 +455,8 @@ bool procFileFunc(char **args, char* execsPath)
         default:
             if(args[i+1] != NULL) 
             {
-                dup2(pipes[j][PIPE_IN], STDIN_FILENO);    
-                close(pipes[j][PIPE_IN]);
+                dup2(pipes[j][PIPE_RD], STDIN_FILENO);    
+                close(pipes[j][PIPE_RD]);
             }    
             
             //Waiting for exec to complete
@@ -631,19 +633,27 @@ FUNCTION: Handler function for signals sent by the user
 *******************************************************************************/
 static void handler(int sig, siginfo_t *si, void *uap)
 {
-
+    sleep(0.1);
     if(sig == SIG_SET_OPS && si->si_pid != getpid())
     {   
-        printf("Handler: %d\n", si->si_pid);
+
         char opsMSG[MAX_OPS+2];
-        int n = read(fdOperations[PIPE_IN], opsMSG, MAX_OPS+2);
+        int n = read(fdOperations[PIPE_RD], opsMSG, MAX_OPS+2);
+
+
+          
+        printf("Current request -> %s\n", opsMSG);
+        printf("pid no handler  -> %d\n", si->si_pid);
+
 
         if(setOps(opsMSG))
         {
+            printf("Current nops    -> %d\n", operations[0]); 
             kill(si->si_pid, SIGCONT);
         }
         else
         {
+            sendMessage(STDERR_FILENO, "Setting up operations failed\n");
             putElem(si->si_pid);
         }
 
@@ -700,7 +710,6 @@ FUNCTION:
 bool setOps(char *opsMSG)
 {
 
-    printf("%s\n", opsMSG);
     char auxMessage[2];
     for (int i = 1; i <= MAX_OPS; i++)
     {
@@ -714,12 +723,20 @@ bool setOps(char *opsMSG)
         if (opsMSG[0] == '+')
             if(operations[i-1] + value <= maxOperations[i-1])
                 operations[i-1] += value; 
-            else return false;
+            else 
+            {
+                sendMessage(STDERR_FILENO, "Falhou+++\n");
+                return false;
+            }
       
         else if (opsMSG[0] == '-')
             if(operations[i-1] - value >= 0)
                 operations[i-1] -= value; 
-            else return false;
+            else 
+            {
+                sendMessage(STDERR_FILENO, "Falhou---\n");
+                return false;
+            }
       
         else
         {
