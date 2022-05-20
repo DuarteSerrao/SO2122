@@ -114,9 +114,9 @@ int main(int argc, char** argv)
     bool listening = true;
     while(listening)
     {   
-         // Set timeout to 1.0 seconds
+         // Set timeout to 30 seconds
         struct timeval timeout;
-        timeout.tv_sec = 10;
+        timeout.tv_sec = 3;
         timeout.tv_usec = 0;
         
         int p = select(fd +1, &read_fds, &write_fds, &except_fds, &timeout);

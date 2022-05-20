@@ -28,7 +28,8 @@ DEVELOPERS: a83630, Duarte Serrão
 
 //CUSTOM SIGNALS
 #define SIG_SUCC    (SIGRTMIN+3)
-#define SIG_SET_OPS (SIGRTMIN+4)
+#define SIG_FAIL    (SIGRTMIN+4)
+#define SIG_SET_OPS (SIGRTMIN+5)
 
 
 //GLOBAL VARS
@@ -39,6 +40,9 @@ pid_t *queue;
 int queueSize;
 
 int fdOperations[2];
+
+int client;
+bool childContinues;
 
 
 //NEW TYPES
@@ -85,7 +89,8 @@ void        doRequest    (char **args, int client, char *execsPath, pid_t ourFat
 void        freeChild    (int sig);
 pid_t       getFirstElem ();
 void        gradChild    (int sig);
-static void handler      (int sig, siginfo_t *si, void *uap);
+static void handlerChild (int sig);
+static void handlerFather(int sig, siginfo_t *si, void *uap);
 void        opsToStr     (char *opsMSG, int ops[MAX_OPS]);
 char**      parseArgs    (char *buff);
 bool        parseConfig  (char *buffer);
@@ -115,14 +120,17 @@ int main(int argc, char **argv)
 
     struct sigaction sa;
     memset(&sa, 0, sizeof(sa));
-    sa.sa_sigaction = handler;
+    sa.sa_sigaction = handlerFather;
     sa.sa_flags = SA_SIGINFO | SA_RESTART | SA_NOCLDSTOP;
 
 
 
     sigaction(SIGCHLD, &sa, NULL);
-    sigaction(SIG_SUCC, &sa, NULL);
     sigaction(SIG_SET_OPS, &sa, NULL);
+
+    signal(SIG_SUCC, handlerChild);
+    signal(SIG_FAIL, handlerChild);
+
 
     pipe(fdOperations);
     
@@ -133,6 +141,7 @@ int main(int argc, char **argv)
 
     queue = NULL;
     queueSize = 0;
+    childContinues = false;
 
     pid_t ourFather = getpid();
 
@@ -177,50 +186,50 @@ int main(int argc, char **argv)
         ssize_t n = read (listener, buff, BUFF_SIZE);
 
 
-            printf("Current client input -> %s\n", buff);
-                
-            sendMessage(STDOUT_FILENO, "Request received from client\n---------------------------------------\n"); 
+        printf("Current client input -> %s\n", buff);
+            
+        sendMessage(STDOUT_FILENO, "Request received from client\n---------------------------------------\n"); 
 
-            buff[n] = '\0';
+        buff[n] = '\0';
 
-            pid_t pid = fork();
+        pid_t pid = fork();
 
-            if(pid < 0)
+        if(pid < 0)
+        {
+            sendMessage(STDERR_FILENO, "Couldn't open fork for my son\n");     
+        }
+        else if (pid == 0) //Son
+        {
+            close(fdOperations[PIPE_RD]);
+            //Opening pipe [Client -> Server]
+
+            //printf("%s\n", buff);
+            char **args = parseArgs(buff);
+
+            char fifo[15];
+            strcpy(fifo, "tmp/");
+            strcat(fifo, args[ID]);
+            strcat(fifo, "\0");
+
+
+            //Opening pipe [Server -> Client]
+            client = open(fifo, O_WRONLY); //| O_NONBLOCK
+
+            if(client < 0)//In case we can't communicate back with client, we choose not to continue the request
             {
-                sendMessage(STDERR_FILENO, "Couldn't open fork for my son\n");     
+                sendMessage(STDERR_FILENO, "Couldn't open pipe Server->Client.\n");
+                continue;
             }
-            else if (pid == 0) //Son
-            {
-                close(fdOperations[PIPE_RD]);
-                //Opening pipe [Client -> Server]
 
-                //printf("%s\n", buff);
-                char **args = parseArgs(buff);
+            doRequest(args, client, execsPath, ourFather);
 
-                char fifo[15];
-                strcpy(fifo, "tmp/");
-                strcat(fifo, args[ID]);
-                strcat(fifo, "\0");
+            close(client);
+            unlink(fifo);
 
-
-                //Opening pipe [Server -> Client]
-                int client = open(fifo, O_WRONLY); //| O_NONBLOCK
-
-                if(client < 0)//In case we can't communicate back with client, we choose not to continue the request
-                {
-                    sendMessage(STDERR_FILENO, "Couldn't open pipe Server->Client.\n");
-                    continue;
-                }
-
-                doRequest(args, client, execsPath, ourFather);
-
-                close(client);
-                unlink(fifo);
-
-                kill(ourFather, SIGCHLD);
-                
-                exit(0);
-            }
+            kill(ourFather, SIGCHLD);
+            
+            exit(0);
+        }
         
         
 
@@ -259,16 +268,6 @@ void doRequest(char **args, int client, char *execsPath, pid_t ourFather)
             sendMessage(client, "Full Capacity. Try again :)\n");
             sendMessage(STDOUT_FILENO, "---------------------------------------\n");
             break;
-        //It's possible, but not RIGHT NOW
-        case 0:
-            putElem(imAChild);
-
-            sendMessage(STDERR_FILENO, "I failed :(\n");
-
-            do{  kill(imAChild, SIGSTOP);  } while(!checkOps(args+ARGS, opsCounter));
-
-            kill(ourFather, SIG_SUCC); //we can continue
-
         default:
             strcpy(opsMSG,"+");
             opsToStr(opsMSG, opsCounter);
@@ -276,11 +275,14 @@ void doRequest(char **args, int client, char *execsPath, pid_t ourFather)
 
             printf("pid antes do pipe-> %d\n", imAChild);
 
-            kill(ourFather, SIG_SET_OPS);
-            write(fdOperations[PIPE_WR], opsMSG, strlen(opsMSG));
+            if(queue != NULL) putElem(imAChild);
 
-
-            kill(imAChild, SIGSTOP);
+            while(!childContinues)
+            {
+                kill(ourFather, SIG_SET_OPS);
+                write(fdOperations[PIPE_WR], opsMSG, strlen(opsMSG));
+                kill(imAChild, SIGSTOP);
+            }
 
 
             printf("opsmessage  depois do stop-> %s\n", opsMSG);
@@ -628,66 +630,8 @@ void putElem(pid_t pid)
 }
 
 
-/*******************************************************************************
-FUNCTION: Handler function for signals sent by the user
-*******************************************************************************/
-static void handler(int sig, siginfo_t *si, void *uap)
-{
-    sleep(0.1);
-    if(sig == SIG_SET_OPS && si->si_pid != getpid())
-    {   
-
-        char opsMSG[MAX_OPS+2];
-        int n = read(fdOperations[PIPE_RD], opsMSG, MAX_OPS+2);
 
 
-          
-        printf("Current request -> %s\n", opsMSG);
-        printf("pid no handler  -> %d\n", si->si_pid);
-
-
-        if(setOps(opsMSG))
-        {
-            printf("Current nops    -> %d\n", operations[0]); 
-            kill(si->si_pid, SIGCONT);
-        }
-        else
-        {
-            sendMessage(STDERR_FILENO, "Setting up operations failed\n");
-            putElem(si->si_pid);
-        }
-
-    }
-
-    
-    if(si->si_code != SI_USER ) return;
-
-    //When the parent process recieves signal that a child process was
-    //successful in finding space for available execs, it will remove the 
-    //first element of the queue (the one who succeeded) and try to
-    //"continue process" the next request.
-    if(sig == SIG_SUCC) getFirstElem();
-
-
-
-    //When the parent process recieves signal that a child process finished,
-    //it will try to force a "continue process" on the first pendent request
-    if((sig == SIGCHLD || sig == SIG_SUCC)&& queue != NULL)
-        kill(queue[0], SIGCONT);
-
-
-
-
-    //if(sig == SIG_GET_STATE && si->si_pid != getpid())
-    //{
-    //    //The first MAX_OPS bytes are reserved for the operations availability
-    //    char opsMSG[MAX_OPS];
-    //    opsToStr(opsMSG, operations);
-    //    sendMsgToProc(si->si_pid, opsMSG);
-    //}
-
-
-}
 
 
 /*******************************************************************************
@@ -723,20 +667,12 @@ bool setOps(char *opsMSG)
         if (opsMSG[0] == '+')
             if(operations[i-1] + value <= maxOperations[i-1])
                 operations[i-1] += value; 
-            else 
-            {
-                sendMessage(STDERR_FILENO, "Falhou+++\n");
-                return false;
-            }
+            else return false;
       
         else if (opsMSG[0] == '-')
             if(operations[i-1] - value >= 0)
                 operations[i-1] -= value; 
-            else 
-            {
-                sendMessage(STDERR_FILENO, "Falhou---\n");
-                return false;
-            }
+            else return false;
       
         else
         {
@@ -746,4 +682,62 @@ bool setOps(char *opsMSG)
     }
 
     return true;
+}
+
+
+/*******************************************************************************
+FUNCTION: Handler function for signals sent by the user
+*******************************************************************************/
+static void handlerFather(int sig, siginfo_t *si, void *uap)
+{
+    
+    if(sig == SIG_SET_OPS && si->si_pid != getpid())
+    {   
+
+        char opsMSG[MAX_OPS+2];
+        read(fdOperations[PIPE_RD], opsMSG, MAX_OPS+2);
+
+        if(setOps(opsMSG))
+        {
+            //If the process tried to set up operations, was successful and was
+            //still in the queue, then we need to take it out
+            if(queue != NULL && si->si_pid == queue[0]) getFirstElem();
+
+            sleep(0.1);
+            kill(si->si_pid, SIGCONT);
+            kill(si->si_pid, SIG_SUCC);
+
+            if(queue != NULL) kill(queue[0], SIGCONT);
+        }
+        else
+        {
+            sendMessage(STDERR_FILENO, "Setting up operations failed\n");
+            kill(si->si_pid, SIGCONT);
+            kill(si->si_pid, SIG_FAIL);
+            if(queue != NULL && si->si_pid != queue[0]) putElem(si->si_pid);
+        }
+    }
+
+    //When the parent process recieves signal that a child process finished,
+    //it will try to force a "continue process" on the first pendent request
+    if(si->si_code == SI_USER && sig == SIGCHLD && queue != NULL)
+        kill(queue[0], SIGCONT);
+}
+
+
+/*******************************************************************************
+FUNCTION: Handler function for signals sent to children
+*******************************************************************************/
+void handlerChild(int sig)
+{
+    if(sig == SIG_FAIL)
+    {
+        sendMessage(client, "Request pending...\n");
+        kill(getpid(), SIGSTOP);
+    }
+    if(sig == SIG_SUCC)
+    {
+        //sendMessage(client, "Request is being processed...\n");
+        childContinues = true;
+    }
 }
