@@ -132,14 +132,14 @@ int main(int argc, char **argv)
     signal(SIG_FAIL, handlerChild);
 
 
-    pipe(fdOperations);
+   
     
 
 
 
     //---------------------------------START UP------------------------------//
 
-    queue = NULL;
+    queue = malloc(0);
     queueSize = 0;
     childContinues = false;
 
@@ -162,6 +162,12 @@ int main(int argc, char **argv)
     //Making named Client->Server pipe
     mkfifo("tmp/pipCliServ", 0644);
 
+    if(!pipe(fdOperations))
+    {
+        sendMessage(STDERR_FILENO, "Couldn't open intra-process pipe\n");
+        return 2;
+    }
+
     sendMessage(STDOUT_FILENO, "Recieving pipe created...\nListening...\n---------------------------------------\n");
 
 
@@ -169,14 +175,12 @@ int main(int argc, char **argv)
     //---------------------------------LISTENER------------------------------//
 
     while(1)
-    {
-        //sleep(0.1);
-        
+    {   
         //Opening pipe
         int listener = open("tmp/pipCliServ", O_RDONLY);
-        if(listener < 0)
+        if(listener < 3)
         {
-            sendMessage(STDERR_FILENO, "Couldn't open pipe Client->Server.\n---------------------------------------\n");
+            sendMessage(STDERR_FILENO, "Couldn't open pipe Client->Server.\n");
             return 2;
         }
 
@@ -186,9 +190,11 @@ int main(int argc, char **argv)
         ssize_t n = read (listener, buff, BUFF_SIZE);
 
 
-        printf("Current client input -> %s\n", buff);
+        //In case the queue was stuck, everytime a new request is received, the server will try to free
+        //the queue
+        if(queueSize > 0) kill(queue[0], SIGCONT);
             
-        sendMessage(STDOUT_FILENO, "Request received from client\n---------------------------------------\n"); 
+        sendMessage(STDOUT_FILENO, "Request received from client\n"); 
 
         buff[n] = '\0';
 
@@ -265,8 +271,8 @@ void doRequest(char **args, int client, char *execsPath, pid_t ourFather)
         {
         // It's impossible to ever do this request
         case -1:
-            sendMessage(client, "Full Capacity. Try again :)\n");
-            sendMessage(STDOUT_FILENO, "---------------------------------------\n");
+            sendMessage(client, "Request had too many transformations. Try again :)\n");
+            sendMessage(STDERR_FILENO, "Request had too many transformations\n");
             break;
         default:
             strcpy(opsMSG,"+");
@@ -284,36 +290,29 @@ void doRequest(char **args, int client, char *execsPath, pid_t ourFather)
                 kill(imAChild, SIGSTOP);
             }
 
-
-            printf("opsmessage  depois do stop-> %s\n", opsMSG);
-
             //Since procFile will mess with STDIN and STDOUT
             procFileFunc(args, execsPath);
 
-
             opsMSG[0] = '-';
-
-
-            
             kill(ourFather, SIG_SET_OPS);
             write(fdOperations[PIPE_WR], opsMSG, strlen(opsMSG));
             
 
-            sendMessage(STDOUT_FILENO, "Request processed\n---------------------------------------\n");
+            sendMessage(STDOUT_FILENO, "Request processed\n");
             sendMessage(client, "Your request was processed\n");
             break;
         }
     }
     else if(!strcmp(args[TYPE], "status"))
     {
-        sendMessage(STDOUT_FILENO, "Request type: STATUS\n---------------------------------------\n");
+        sendMessage(STDOUT_FILENO, "Request type: STATUS\n");
         char message[BUFF_SIZE];
         statusFunc (message);
         sendMessage(client, message);
     }
     else 
     {
-        sendMessage(STDOUT_FILENO, "Request type: ERROR\n---------------------------------------\n");
+        sendMessage(STDOUT_FILENO, "Request type: ERROR\n");
         sendMessage(client, "Options available: 'proc_file' or 'status'\n");
     }
     
@@ -358,8 +357,24 @@ FUNCTION: Function for a 'status' request
 *******************************************************************************/
 void statusFunc (char *message)
 {
+    char aux[10];
+    
+    //Pending requests
+    if(queueSize == 0) strcat(message, "No requests pending.\n");
+    else
+    {
+        strcat(message, "Requests pending:\n");
+        for(int i = 0; i < queueSize; i++)
+        {
+            strcat(message, "[Request ");
+            sprintf(aux, "%d", queue[i]);
+            strcat(message, aux);
+            strcat(message, "]\n");
+        }
+    }
+    
+
     //Operations part
-    char aux[3];
     for(int i = 0; i < MAX_OPS; i++)
     {
         strcat(message, "transf ");
@@ -380,7 +395,7 @@ FUNCTION: Function for a 'process file' request
 *******************************************************************************/
 bool procFileFunc(char **args, char* execsPath)
 {    
-    sleep(1); //TIRAR DEPOIS
+    sleep(3); //TIRAR DEPOIS
 
     bool retVal = true;
     int **pipes = NULL; //We need n-1 pipes
@@ -518,11 +533,10 @@ FUNCTION: Gracefully exists the program
 *******************************************************************************/
 void terminate(int signum)
 {
-    unlink("tmp/pipServCli");
     unlink("tmp/pipCliServ");
     pid_t p = getpid();
-    kill(p, SIGQUIT);
     free(queue);
+    kill(p, SIGQUIT);
 }
 
 
@@ -610,9 +624,9 @@ pid_t getFirstElem()
     if (queue == NULL) return -1;
 
     pid_t pid = queue[0];
+    queueSize--;
 
-    queue = &queue[1];
-    queue = realloc(queue, sizeof(queue)-sizeof(pid_t));
+    memmove(&queue[1], &queue[0], queueSize*sizeof(pid_t));
 
     return pid;
 }
@@ -623,15 +637,9 @@ FUNCTION: Adds element to end of queue
 void putElem(pid_t pid)
 {
     queueSize++;
-
     queue = realloc(queue, queueSize*sizeof(pid_t));
-
     queue[queueSize-1] = pid;
 }
-
-
-
-
 
 
 /*******************************************************************************
@@ -701,26 +709,26 @@ static void handlerFather(int sig, siginfo_t *si, void *uap)
         {
             //If the process tried to set up operations, was successful and was
             //still in the queue, then we need to take it out
-            if(queue != NULL && si->si_pid == queue[0]) getFirstElem();
+            if(queueSize > 0 && si->si_pid == queue[0]) getFirstElem();
 
             sleep(0.1);
             kill(si->si_pid, SIGCONT);
             kill(si->si_pid, SIG_SUCC);
 
-            if(queue != NULL) kill(queue[0], SIGCONT);
+            if(queueSize > 0) kill(queue[0], SIGCONT);
         }
         else
         {
             sendMessage(STDERR_FILENO, "Setting up operations failed\n");
             kill(si->si_pid, SIGCONT);
             kill(si->si_pid, SIG_FAIL);
-            if(queue != NULL && si->si_pid != queue[0]) putElem(si->si_pid);
+            if(queueSize == 0 || si->si_pid != queue[0]) putElem(si->si_pid);
         }
     }
 
     //When the parent process recieves signal that a child process finished,
     //it will try to force a "continue process" on the first pendent request
-    if(si->si_code == SI_USER && sig == SIGCHLD && queue != NULL)
+    if(si->si_code == SI_USER && sig == SIGCHLD && queueSize > 0)
         kill(queue[0], SIGCONT);
 }
 

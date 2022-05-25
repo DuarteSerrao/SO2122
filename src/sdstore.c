@@ -116,7 +116,7 @@ int main(int argc, char** argv)
     {   
          // Set timeout to 30 seconds
         struct timeval timeout;
-        timeout.tv_sec = 3;
+        timeout.tv_sec = 30;
         timeout.tv_usec = 0;
         
         int p = select(fd +1, &read_fds, &write_fds, &except_fds, &timeout);
