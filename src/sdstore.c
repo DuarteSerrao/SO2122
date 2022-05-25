@@ -8,7 +8,7 @@ DEVELOPERS: a83630, Duarte Serrão
             a71074, Sebastião Freitas
 *******************************************************************************/
 #include <fcntl.h>
-#include <stdio.h>  //Tirar isto mais tarde
+#include <stdio.h>  
 #include <string.h>
 #include <unistd.h>
 #include <signal.h>
@@ -32,22 +32,14 @@ void terminate(int signum){
     kill(p, SIGQUIT);
 }
 
+void loader();
+
 int main(int argc, char** argv)
 {
-    //Peço desculpa, Moura :(
-    if(fork() == 0)
-    {
-        exit(0);
-    }
-    int status;
-    waitpid(0, &status, 0);
 
-    srand(time(NULL));   // Initialization, should only be called once.
-    int randomnumber;
-    randomnumber = rand() % 10 + 1;    // Returns a pseudo-random integer between 0 and RAND_MAX.
-    usleep(randomnumber);
 
     signal(SIGINT, terminate);
+    signal(SIGQUIT, terminate);
     signal(SIGTERM, terminate);
 
     char buff[BUFF_SIZE] = "";
@@ -74,7 +66,6 @@ int main(int argc, char** argv)
         strcat(buff, argv[i]);
     }
 
-    //isto nao faz nada
     buff[strlen(buff)] = '\0';
 
     //Opening [Client -> Server] pipe and verifying if the server is ready
@@ -140,4 +131,21 @@ int main(int argc, char** argv)
     close(fd);
     
     return 0;
+}
+
+
+void loader()
+{
+
+    if(fork() == 0)
+    {
+        exit(0);
+    }
+    int status;
+    waitpid(0, &status, 0);
+
+    srand(time(NULL));  
+    int randomnumber;
+    randomnumber = rand() % 10 + 1;    // Returns a pseudo-random integer between 0 and RAND_MAX.
+    usleep(randomnumber);
 }

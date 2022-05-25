@@ -116,6 +116,7 @@ int main(int argc, char **argv)
     //------------------------------SIGNAL STUFF-----------------------------//
 
     signal(SIGINT, terminate);
+    signal(SIGQUIT, terminate);
     signal(SIGTERM, terminate);
 
     struct sigaction sa;
