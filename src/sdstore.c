@@ -37,6 +37,7 @@ void loader();
 int main(int argc, char** argv)
 {
 
+    loader();
 
     signal(SIGINT, terminate);
     signal(SIGQUIT, terminate);

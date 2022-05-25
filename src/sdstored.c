@@ -210,7 +210,6 @@ int main(int argc, char **argv)
             close(fdOperations[PIPE_RD]);
             //Opening pipe [Client -> Server]
 
-            //printf("%s\n", buff);
             char **args = parseArgs(buff);
 
             char fifo[15];
@@ -279,8 +278,6 @@ void doRequest(char **args, int client, char *execsPath, pid_t ourFather)
             strcpy(opsMSG,"+");
             opsToStr(opsMSG, opsCounter);
 
-
-            printf("pid antes do pipe-> %d\n", imAChild);
 
             if(queue != NULL) putElem(imAChild);
 
