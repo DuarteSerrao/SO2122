@@ -163,11 +163,7 @@ int main(int argc, char **argv)
     //Making named Client->Server pipe
     mkfifo("tmp/pipCliServ", 0644);
 
-    if(!pipe(fdOperations))
-    {
-        sendMessage(STDERR_FILENO, "Couldn't open intra-process pipe\n");
-        return 2;
-    }
+    pipe(fdOperations);
 
     sendMessage(STDOUT_FILENO, "Recieving pipe created...\nListening...\n---------------------------------------\n");
 
@@ -696,20 +692,23 @@ FUNCTION: Handler function for signals sent by the user
 *******************************************************************************/
 static void handlerFather(int sig, siginfo_t *si, void *uap)
 {
-    
+    //sleep(0.2);   
     if(sig == SIG_SET_OPS && si->si_pid != getpid())
     {   
 
         char opsMSG[MAX_OPS+2];
+        
         read(fdOperations[PIPE_RD], opsMSG, MAX_OPS+2);
 
+        printf("%s\n",opsMSG);
         if(setOps(opsMSG))
-        {
+        {   
+            sleep(0.1);
             //If the process tried to set up operations, was successful and was
             //still in the queue, then we need to take it out
             if(queueSize > 0 && si->si_pid == queue[0]) getFirstElem();
 
-            sleep(0.1);
+            
             kill(si->si_pid, SIGCONT);
             kill(si->si_pid, SIG_SUCC);
 
@@ -717,7 +716,7 @@ static void handlerFather(int sig, siginfo_t *si, void *uap)
         }
         else
         {
-            sendMessage(STDERR_FILENO, "Setting up operations failed\n");
+            sendMessage(STDERR_FILENO, "Setting up operations failed...\nAdding to queue\n");
             kill(si->si_pid, SIGCONT);
             kill(si->si_pid, SIG_FAIL);
             if(queueSize == 0 || si->si_pid != queue[0]) putElem(si->si_pid);
